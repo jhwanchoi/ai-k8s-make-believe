@@ -1,0 +1,17 @@
+{
+  "description": "ai-k8s-make-believe: 연습 디렉터리(.cka/ 존재)에서는 실제 k8s/노드 명령 실행을 차단",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

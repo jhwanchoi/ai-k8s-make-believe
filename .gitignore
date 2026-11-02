@@ -1,0 +1,10 @@
+# 연습하면서 생기는 가상 상태
+.cka/
+
+# 실제 클러스터 접속 정보
+kubeconfig
+*.kubeconfig
+*.local.md
+
+__pycache__/
+.DS_Store
