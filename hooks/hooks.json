@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -d \"${CLAUDE_PROJECT_DIR:-.}/.cka\" ] || [ -d .cka ] || exit 0; command -v python3 >/dev/null 2>&1 || { echo 'ai-k8s-make-believe: python3 가 없어 실행 차단 훅이 동작하지 않습니다. python3 를 설치하세요.' >&2; exit 1; }; exec python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\"",
+            "command": "if command -v python3 >/dev/null 2>&1; then exec python3 -I -S \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\"; fi; if [ -d \"${CLAUDE_PROJECT_DIR:-.}/.cka\" ] || [ -d .cka ]; then echo 'ai-k8s-make-believe: python3 가 없어 실행 차단 여부를 판단할 수 없습니다. 연습 디렉터리에서는 python3 를 설치할 때까지 Bash 를 막습니다.' >&2; exit 2; fi; exit 0",
             "timeout": 10
           }
         ]
