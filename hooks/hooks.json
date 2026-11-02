@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\"",
+            "command": "[ -d \"${CLAUDE_PROJECT_DIR:-.}/.cka\" ] || [ -d .cka ] || exit 0; command -v python3 >/dev/null 2>&1 || { echo 'ai-k8s-make-believe: python3 가 없어 실행 차단 훅이 동작하지 않습니다. python3 를 설치하세요.' >&2; exit 1; }; exec python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\"",
             "timeout": 10
           }
         ]
