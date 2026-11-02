@@ -144,7 +144,7 @@ Claude Code는 파일을 쓰거나 명령을 실행할 때마다 확인을 받�
 
 - **`/cka-load`가 없다고 나와요.** 플러그인 이름을 붙여 `/ai-k8s-make-believe:cka-load`로 입력하세요. 설치 직후라면 `/reload-plugins`를 먼저 실행하세요.
 - **연습 디렉터리에서 진짜 `kubectl`을 쓰고 싶어요.** 막는 게 의도입니다. `.cka/`가 없는 다른 디렉터리에서 쓰세요.
-- **python3가 없다는 경고가 떠요.** 연습 디렉터리에서는 차단 훅과 채점 스크립트가 python3를 씁니다. 설치한 뒤 다시 시도하세요. 연습 디렉터리 밖에서는 훅이 python3를 부르지 않습니다.
+- **python3가 없다는 메시지와 함께 Bash가 막혀요.** 차단 훅과 채점 스크립트가 python3를 씁니다. python3가 없으면 막아야 할 명령인지 판단할 수 없어서, 연습 디렉터리에서는 안전하게 모두 막습니다. 설치한 뒤 다시 시도하세요.
 - **시뮬레이션 출력이나 채점이 실제와 달라요.** [이슈](https://github.com/jhwanchoi/ai-k8s-make-believe/issues/new/choose)로 알려 주세요. 명령, 가상 출력, 실제 출력, Kubernetes 버전을 적어 주시면 지침을 고칩니다. 실제 시험 문제나 kubeconfig는 붙이지 마세요.
 - **업데이트와 삭제는 어떻게 하나요.** `claude plugin update ai-k8s-make-believe@ai-k8s-make-believe`, `claude plugin uninstall ai-k8s-make-believe@ai-k8s-make-believe`.
 

@@ -6,6 +6,7 @@
 
 - `.cka/` 폴더가 있는 디렉터리에서만 동작합니다. 그 밖에서는 아무것도 하지 않습니다.
 - 명령 위치에 오는 `kubectl`, `etcdctl`, `etcdutl`, `kubeadm`, `kubelet`, `systemctl`, `journalctl`, `crictl`, `ctr`, `helm`, `kustomize`, `ssh`, `scp`를 막습니다. `sudo`, `env`, `nice`, `timeout` 같은 래퍼 뒤에 와도 막습니다.
+- python3 가 없으면 판단을 할 수 없으므로 연습 디렉터리에서는 Bash 를 모두 막습니다.
 - 셸 파서가 아니라 정규식으로 찾기 때문에 일부러 꾸민 명령까지 막지는 못합니다.
 - `.cka/`가 아직 없는 새 디렉터리에서는 동작하지 않습니다. 실제 클러스터에 연결된 kubeconfig가 있다면 `mkdir -p .cka`로 연습 디렉터리를 먼저 만드세요.
 
