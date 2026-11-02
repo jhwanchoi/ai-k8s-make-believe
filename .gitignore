@@ -8,3 +8,6 @@ kubeconfig
 
 __pycache__/
 .DS_Store
+
+# 비공개 검증 데이터 (모의고사 원문, 개인 풀이). 저장소에 올리지 않는다
+evals.local/

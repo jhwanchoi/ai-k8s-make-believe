@@ -92,7 +92,8 @@ def _selftest():
         "kubeconform pod.yaml",
         "kill 1",
         "grep -r kubectl-neat .",
-        "H=.cka/q1/history.md; echo \"### #3  $(date '+%F %H:%M')\" >> \"$H\"; cat >> \"$H\" <<'CKA_HISTORY_EOF'\n"
+        "date '+### #3  %F %H:%M' >> .cka/q1/history.md; "
+        "cat >> .cka/q1/history.md <<'CKA_HISTORY_EOF'\n"
         "$ kubectl drain node01\nkubectl delete ns prod\nsystemctl stop kubelet\nCKA_HISTORY_EOF",
     ]
     for c in must_block:
