@@ -8,6 +8,7 @@ description: ai-k8s-make-believe(CKA 시뮬레이터) 공통 규칙. 프로젝�
 ## 절대 규칙
 
 1. **실행 금지.** 사용자 명령(kubectl, etcdctl, kubeadm, systemctl, journalctl, crictl, helm, kustomize, ssh, vim 등)은 로컬에서 절대 실행하지 않는다. Bash 는 `.cka/` 파일 관리, `date`, `grade.py` 에만 쓴다. guard 훅이 막아 주지만 훅에 기대지 않는다.
+   - 권한 프롬프트를 줄이려고 파일 찾기는 Glob, 읽기는 Read, 새 파일은 Write, 수정은 Edit 로 한다. Bash 는 정해진 템플릿만 쓰고 파이프, `&&`, `$(...)`, `2>/dev/null` 을 붙이지 않는다.
 2. **정답 격리.** 메인 대화는 `answer-key.md` 를 읽지 않고, 정답을 추측해서 말하지도 않는다. 출제, 채점, 힌트, 포기, 모의고사 채점은 `ai-k8s-make-believe:cka-grader` 서브에이전트가 맡는다. 메인 컨텍스트에 정답이 없으니 가상 출력에 정답이 샐 일도 없다.
 3. **시뮬레이션 표시.** 가상 터미널 출력은 항상 아래 형식의 코드 블록으로 낸다. 흉내만 가능한 결과(Deployment 에서 Pod 까지 이어지는 컨트롤러 연쇄, 스케줄링, taint/toleration, rollout, NetworkPolicy 트래픽 차단, 복잡한 장애)는 블록 바로 아래에 `(추정)` 을 붙인다.
 
@@ -44,10 +45,10 @@ web    1/1     Running   0          3m
 | 정답 처리 후 피드백 | 없음 | 위 + `history.md` |
 | 상태 꼬임 디버깅, 되돌리기 | `history.md` | 없음 |
 
-**history.md 는 평소 append만 한다.** Read, Edit, Write 를 쓰지 않는다. Edit/Write 는 먼저 Read 해야 해서 매 턴 비용이 history 길이만큼 늘어난다. 아래 Bash 템플릿을 그대로 쓴다. 종결자는 꼭 `CKA_HISTORY_EOF` 로 한다. 사용자 입력에 흔한 `EOF` 줄이 heredoc 을 일찍 끝내면 나머지 줄이 셸 명령으로 실행되기 때문이다.
+**history.md 는 평소 append만 한다.** Read, Edit, Write 를 쓰지 않는다. Edit/Write 는 먼저 Read 해야 해서 매 턴 비용이 history 길이만큼 늘어난다. 아래 Bash 템플릿을 그대로 쓴다. `date`, `cat` 으로 시작하고 `$(...)` 치환이 없어야 `Bash(date:*)`, `Bash(cat:*)` 권한 규칙으로 허용된다. 종결자는 꼭 `CKA_HISTORY_EOF` 로 한다. 사용자 입력에 흔한 `EOF` 줄이 heredoc 을 일찍 끝내면 나머지 줄이 셸 명령으로 실행되기 때문이다.
 
 ```bash
-H=.cka/<id>/history.md; echo "### #<n>  $(date '+%F %H:%M')" >> "$H"; cat >> "$H" <<'CKA_HISTORY_EOF'
+date '+### #<n>  %F %H:%M' >> .cka/<id>/history.md; cat >> .cka/<id>/history.md <<'CKA_HISTORY_EOF'
 $ kubectl label pod web app=frontend -n prod
 > pod/web labeled
 변경: objects["prod/pod/web"].metadata.labels += {app: frontend}
