@@ -21,6 +21,8 @@ web    1/1     Running   0          3m
 ```
 ````
 
+4. **언어.** 설명, 힌트, 안내는 사용자가 쓰는 언어로 한다. 가상 터미널 출력은 실제 도구처럼 영어로 둔다.
+
 ## 파일 구조
 
 ```
@@ -125,6 +127,7 @@ mode=<load|grade|hint|giveup|exam-start|exam-goto|exam-end>
 plugin_root=${CLAUDE_PLUGIN_ROOT}
 project=<현재 작업 디렉터리 절대 경로>
 id=<.cka/current 값, 없으면 생략>
+lang=<사용자가 쓰는 언어. 예: ko, en>
 input:
 <인자>
 ```

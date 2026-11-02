@@ -6,7 +6,7 @@
 
 A Claude Code plugin for CKA practice without a cluster. Claude keeps a small text-based virtual state per problem, makes up realistic `kubectl`, `etcdctl`, `kubeadm` and `systemctl` output, grades your answer against a fixed rubric, and coaches you with step-by-step hints.
 
-클러스터 없이 진짜인 척 돌아가는 CKA 연습용 비공식 시뮬레이터, 일명 **k12s**(kubernetes-less)입니다. 실제 클러스터, 컨테이너, VM은 하나도 띄우지 않습니다. Claude가 문제마다 텍스트로 된 가상 상태를 들고 터미널 출력을 지어내고, 문제를 낼 때 고정한 루브릭으로 채점하고 틀리면 단계별로 힌트를 줍니다.
+클러스터 없이 진짜인 척 돌아가는 CKA 연습용 비공식 시뮬레이터, 일명 **k12s**(kubernetes-less)입니다. 실제 클러스터, 컨테이너, VM은 하나도 띄우지 않습니다. Claude가 문제마다 텍스트로 된 가상 상태를 들고 터미널 출력을 지어냅니다. 문제를 낼 때 고정한 루브릭으로 채점하고 틀리면 단계별로 힌트를 줍니다.
 
 > [!IMPORTANT]
 > - 개인이 만든 비공식 프로젝트이며 CNCF, Linux Foundation과 관련이 없습니다.
@@ -24,7 +24,20 @@ CKA는 터미널에서 직접 푸는 시험이라 연습 환경이 필요합니�
 
 그래서 문제마다 상태 파일과 루브릭을 고정했습니다. 같은 답안은 매번 같게 채점되고 정답은 문제가 끝날 때까지 나오지 않습니다.
 
-## 이렇게 씁니다
+## 빠른 시작
+
+```bash
+claude plugin marketplace add jhwanchoi/ai-k8s-make-believe
+claude plugin install ai-k8s-make-believe@ai-k8s-make-believe --scope user
+```
+
+이미 열려 있는 Claude Code 세션에서는 `/reload-plugins`를 실행하면 바로 쓸 수 있습니다.
+
+연습은 전용 디렉터리에서 합니다. `.cka/` 폴더가 있는 디렉터리에서는 Claude가 실제 `kubectl` 같은 명령을 실행하지 못하게 막습니다.
+
+```bash
+mkdir -p ~/cka-practice/.cka && cd ~/cka-practice && claude
+```
 
 ```
 /cka-load prod 네임스페이스의 web Deployment를 web-svc라는 Service로 80 포트에 노출하라
@@ -58,7 +71,7 @@ $ kubectl expose deploy web -n prod --name web-svc --port 80 --target-port 8080
 | `cka-rules` skill | 가상 상태 스키마, 명령 해석, 출력 형식 규칙 |
 | `cka-grader` agent | 출제, 채점, 힌트, 모의고사 리포트. 정답을 읽는 유일한 주체 |
 | `scripts/grade.py` | 루브릭 항목을 상태 파일과 결정적으로 비교 |
-| `scripts/guard.py` | 문제를 푸는 동안 실제 `kubectl` 같은 명령 실행을 막는 훅 |
+| `scripts/guard.py` | 연습 디렉터리에서 실제 `kubectl` 같은 명령 실행을 막는 훅 |
 
 ```mermaid
 flowchart LR
@@ -73,10 +86,11 @@ flowchart LR
 
 ## 동작 방식
 
-- **최종 상태로 채점합니다.** imperative로 풀든 YAML로 풀든 결과가 같으면 정답입니다. 결정적으로 판단할 수 있는 항목은 `grade.py`가 보고, 의미를 따져야 하는 항목만 Claude가 봅니다.
+- **최종 상태로 채점합니다.** imperative로 풀든 YAML로 풀든 결과가 같으면 정답입니다. 결정적으로 판단할 수 있는 항목은 `grade.py`가 보고 의미를 따져야 하는 항목만 Claude가 봅니다. 리소스가 있는지만 보지 않고 Pod가 어느 노드에 떴는지, 요청이 실제로 라우팅될 조건이 갖춰졌는지 같은 결과 상태도 봅니다.
 - **정답은 메인 대화에 들어오지 않습니다.** 출제와 채점은 `cka-grader` 서브에이전트가 맡습니다. 터미널을 흉내 내는 메인 Claude는 정답을 모르기 때문에 가상 출력에 정답이 섞일 수 없습니다.
 - **상태는 파일로 관리합니다.** 대화가 길어지거나 끊겨도 `.cka/`에서 이어서 풀 수 있습니다. 명령을 실행할 때는 `state.json`만 읽고 `history.md`에는 덧붙이기만 해서 명령이 쌓여도 한 턴 비용이 거의 늘지 않습니다.
-- **진짜 명령은 막습니다.** `.cka/` 폴더가 있는 연습 디렉터리에서 Claude가 실수로 `kubectl`, `etcdctl`, `kubeadm`, `systemctl`, `helm`, `ssh` 등을 실제로 실행하려 하면 훅이 막습니다.
+- **진짜 명령은 막습니다.** `.cka/` 폴더가 있는 연습 디렉터리에서 Claude가 실수로 `kubectl`, `etcdctl`, `kubeadm`, `systemctl`, `helm`, `ssh` 등을 실제로 실행하려 하면 훅이 막습니다. 자세한 범위는 [SECURITY.md](SECURITY.md)를 보세요.
+- **쓰는 언어로 답합니다.** 설명과 힌트는 질문한 언어로 하고 가상 터미널 출력은 실제 도구처럼 영어로 보여 줍니다.
 
 ```
 .cka/
@@ -96,28 +110,57 @@ flowchart LR
 
 - [Claude Code](https://claude.com/claude-code)
 - `python3` (표준 라이브러리만 씁니다)
+- macOS에서 확인했습니다. Linux도 같은 방식으로 동작하고 Windows에서는 WSL을 권합니다.
 
-## 설치
+## 권한 확인 줄이기
 
-```bash
-git clone https://github.com/jhwanchoi/ai-k8s-make-believe.git
-claude plugin marketplace add ./ai-k8s-make-believe
-claude plugin install ai-k8s-make-believe@ai-k8s-make-believe --scope user
+Claude Code는 파일을 쓰거나 명령을 실행할 때마다 확인을 받습니다. 연습 디렉터리에 아래 파일을 두면 `.cka/` 안의 상태 파일 작업은 묻지 않고 진행합니다. 허용 범위는 `.cka/` 안으로만 좁혔습니다.
+
+`~/cka-practice/.claude/settings.local.json`
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Read(./.cka/**)",
+      "Edit(./.cka/**)",
+      "Bash(date:*)",
+      "Bash(cat >> .cka/:*)"
+    ]
+  }
+}
 ```
 
-이미 열려 있는 Claude Code 세션에서는 `/reload-plugins`를 실행하면 바로 쓸 수 있습니다.
-
-연습은 전용 디렉터리에서 하길 권합니다. 한 번이라도 문제를 불러온 디렉터리(`.cka/`가 있는 곳)에서는 Claude가 실제 `kubectl`을 실행할 수 없습니다.
+채점 스크립트 실행(`python3 .../grade.py`)과 문제 정리(`rm -rf .cka/...`)는 물어볼 때 확인해 주세요.
 
 ## 한계
 
 - 흉내만 낼 수 있는 결과에는 `(추정)`이 붙습니다. 컨트롤러 연쇄, 스케줄링, NetworkPolicy 트래픽, 복잡한 장애가 그렇습니다. 이런 유형은 Killercoda의 CKA 플레이그라운드 같은 실제 환경으로 보완하고 시험 등록 때 받는 killer.sh 2회는 마무리 점검에 쓰는 게 좋습니다.
 - 명령에 따른 상태 변화는 결국 LLM이 계산합니다. 상태가 이상하면 `history.md`의 변경 기록으로 원인을 찾을 수 있습니다.
 - 트러블슈팅 문제는 `state.json`을 열면 증상이 그대로 보입니다. 스포일러가 싫으면 열지 마세요.
+- 출제, 채점, 힌트 때마다 서브에이전트를 한 번 더 띄우므로 일반 대화보다 토큰을 더 씁니다. 검증은 Sonnet으로 했습니다.
+
+## 자주 묻는 것
+
+- **`/cka-load`가 없다고 나와요.** 플러그인 이름을 붙여 `/ai-k8s-make-believe:cka-load`로 입력하세요. 설치 직후라면 `/reload-plugins`를 먼저 실행하세요.
+- **연습 디렉터리에서 진짜 `kubectl`을 쓰고 싶어요.** 막는 게 의도입니다. `.cka/`가 없는 다른 디렉터리에서 쓰세요.
+- **python3가 없다는 경고가 떠요.** 연습 디렉터리에서는 차단 훅과 채점 스크립트가 python3를 씁니다. 설치한 뒤 다시 시도하세요. 연습 디렉터리 밖에서는 훅이 python3를 부르지 않습니다.
+- **시뮬레이션 출력이나 채점이 실제와 달라요.** [이슈](https://github.com/jhwanchoi/ai-k8s-make-believe/issues/new/choose)로 알려 주세요. 명령, 가상 출력, 실제 출력, Kubernetes 버전을 적어 주시면 지침을 고칩니다. 실제 시험 문제나 kubeconfig는 붙이지 마세요.
+- **업데이트와 삭제는 어떻게 하나요.** `claude plugin update ai-k8s-make-believe@ai-k8s-make-believe`, `claude plugin uninstall ai-k8s-make-believe@ai-k8s-make-believe`.
+
+## English quick start
+
+```bash
+claude plugin marketplace add jhwanchoi/ai-k8s-make-believe
+claude plugin install ai-k8s-make-believe@ai-k8s-make-believe --scope user
+mkdir -p ~/cka-practice/.cka && cd ~/cka-practice && claude
+```
+
+Then run `/cka-load <problem text or topic>`, type commands as `$ kubectl ...`, and finish with `/cka-submit`. Claude answers in the language you write in. Inside a practice directory (one that has `.cka/`), a hook stops Claude from running real cluster commands.
 
 ## 기여할 때
 
-[CONTRIBUTING.md](CONTRIBUTING.md)를 보세요. 로컬에서 고친 플러그인은 `claude --plugin-dir .`로 바로 띄워 볼 수 있습니다.
+[CONTRIBUTING.md](CONTRIBUTING.md)를 보세요. 로컬에서 고쳐 보려면 저장소를 받아 `claude --plugin-dir ./ai-k8s-make-believe`로 띄우면 됩니다.
 
 `skills/`와 `agents/`의 지침을 바꾸면 이 플러그인을 쓰는 모든 사람의 시뮬레이션과 채점이 바뀝니다. PR을 보내실 때는 근거가 된 Kubernetes 공식 문서나 실제 출력 예시를 함께 적어 주세요.
 

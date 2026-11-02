@@ -1,0 +1,30 @@
+name: 플러그인 동작 오류
+description: 커맨드가 실패하거나 상태 파일이 꼬이는 등 플러그인 자체의 문제
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        실제 시험 문제, kubeconfig, 토큰, 인증서, 회사 클러스터 정보는 붙이지 마세요. 실행 차단 훅 우회처럼 보안 문제라면 이슈 대신 SECURITY.md 의 비공개 제보를 써 주세요.
+  - type: textarea
+    id: steps
+    attributes:
+      label: 한 일
+      description: 실행한 커맨드를 순서대로 적어 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 일어난 일
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대한 일
+  - type: input
+    id: env
+    attributes:
+      label: 환경
+      placeholder: macOS 15, Claude Code 2.x, 플러그인 0.1.0, Sonnet
