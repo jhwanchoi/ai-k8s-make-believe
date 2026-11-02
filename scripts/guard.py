@@ -13,10 +13,13 @@ from pathlib import Path
 TOOLS = r"kubectl|k|etcdctl|etcdutl|kubeadm|kubelet|systemctl|journalctl|crictl|ctr|helm|kustomize|ssh|scp"
 # ponytail: regex on command position, not a shell parser. Catches accidental runs
 # (sudo/env/wrappers, sh -c, $(...), pipes), not deliberate obfuscation.
-PREFIX = r"(?:sudo(?:\s+-\S+)*\s+|\w+=\S*\s+|(?:watch|xargs|nohup|time|exec|timeout\s+\S+)\s+)*"
+WRAPPERS = r"sudo|doas|env|command|builtin|exec|eval|nice|ionice|stdbuf|nohup|time|watch|xargs|timeout"
+# A wrapper may take any options/values before the tool (lazy, so `nice -n 10 kubectl` and
+# `timeout -s KILL 5 kubectl` match). Errs toward blocking: only active in practice dirs.
+PREFIX = r"(?:(?:" + WRAPPERS + r")(?:\s+\S+)*?\s+|\w+=\S*\s+)*"
 CMD = re.compile(
     r"(?:^|[;&|({`]|\$\(|-c\s+['\"])\s*" + PREFIX
-    + r"(?:\S*/)?(?P<tool>" + TOOLS + r")(?=\s|$|[;&|)`'\"])",
+    + r"[\\'\"]?(?:\S*/)?(?P<tool>" + TOOLS + r")(?=\s|$|[;&|)`'\"])",
     re.M,
 )
 HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)(\w+)\1")
@@ -30,9 +33,10 @@ def strip_heredocs(cmd):
         out.append(line)
         i += 1
         for m in HEREDOC.finditer(line):
-            while i < len(lines) and lines[i].strip() != m.group(2):
-                i += 1
-            i += 1
+            end = next((j for j in range(i, len(lines)) if lines[j].strip() == m.group(2)), None)
+            if end is None:  # no terminator (e.g. $((1<<2))): not a heredoc, keep scanning
+                continue
+            i = end + 1
     return "\n".join(out)
 
 
@@ -73,6 +77,14 @@ def _selftest():
         "cat x | xargs kubectl apply -f",
         "kubectl apply -f - <<EOF\nkind: Pod\nEOF",
         "cat <<'X'\ndata\nX\nkubeadm reset -f",
+        "env -i kubectl get po",
+        "nice -n 10 kubectl drain node01",
+        "timeout -s KILL 5 kubectl get po",
+        "command kubectl get po",
+        "\\kubectl get po",
+        "'kubectl' get po",
+        "echo $((1<<2))\nkubectl delete ns prod",
+        "cat <<EOF\nno terminator\nkubectl delete ns prod",
     ]
     must_allow = [
         "python3 grade.py .cka/q03-kubeadm-upgrade",
