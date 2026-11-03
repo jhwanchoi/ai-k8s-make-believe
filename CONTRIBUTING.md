@@ -23,7 +23,7 @@
 ## 릴리스
 
 - 사용자가 겪는 동작이 바뀌면 `.claude-plugin/plugin.json`의 `version`을 올립니다.
-- 동작을 바꿨다면 직접 만든 문제로 `/cka-load`, `/cka`, `/cka-submit`, `/cka-hint`, `/cka-reset`, `/cka-giveup`을 한 번씩 돌려 봅니다.
+- 동작을 바꿨다면 직접 만든 문제로 `/ai-k8s-make-believe:cka-load`, `/ai-k8s-make-believe:cka`, `/ai-k8s-make-believe:cka-submit`, `/ai-k8s-make-believe:cka-hint`, `/ai-k8s-make-believe:cka-reset`, `/ai-k8s-make-believe:cka-giveup`을 한 번씩 돌려 봅니다.
 - 병합한 뒤 `v<version>` 태그와 GitHub Release를 만듭니다.
 
 ## 로컬에서 확인하기

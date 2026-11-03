@@ -1,7 +1,7 @@
 {
   "name": "ai-k8s-make-believe",
   "displayName": "ai-k8s-make-believe: 클러스터 없는 CKA 연습 시뮬레이터",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Your cluster lives in my head. 클러스터 없이 진짜인 척 돌아가는 CKA 연습용 비공식 시뮬레이터. 일명 k12s(kubernetes-less).",
   "author": {
     "name": "jhwanchoi",

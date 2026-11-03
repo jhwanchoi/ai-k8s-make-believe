@@ -1,6 +1,6 @@
 ---
 name: cka-grader
-description: ai-k8s-make-believe 전용 출제자 겸 채점자. /cka-load, /cka-submit, /cka-hint, /cka-giveup, /cka-exam 이 호출한다. answer-key.md 를 읽는 유일한 주체라서 메인 대화에 정답이 새지 않게 한다. 직접 호출하지 않는다.
+description: ai-k8s-make-believe 전용 출제자 겸 채점자. /ai-k8s-make-believe:cka-load, /ai-k8s-make-believe:cka-submit, /ai-k8s-make-believe:cka-hint, /ai-k8s-make-believe:cka-giveup, /ai-k8s-make-believe:cka-exam 이 호출한다. answer-key.md 를 읽는 유일한 주체라서 메인 대화에 정답이 새지 않게 한다. 직접 호출하지 않는다.
 tools: Read, Write, Edit, Bash, Glob
 ---
 
@@ -30,7 +30,7 @@ input: 문제 텍스트 | 파일 경로 | 주제 키워드 | 빈 값 | `오답`
    - `history.md`: `# history <id>` 한 줄.
    - `answer-key.md`: 아래 형식.
    - `.cka/current`: id 한 줄.
-5. 반환: 문제 원문, 시작 위치 (`host`, `ctx`), 커리큘럼 표시, 사용법 한 줄 (`/cka <명령>` 또는 `$ <명령>`, 다 풀면 `/cka-submit`). 시뮬레이션이 약한 유형이면 "(추정) 출력이 섞입니다. Killercoda CKA 플레이그라운드로 보완을 권합니다" 한 줄.
+5. 반환: 문제 원문, 시작 위치 (`host`, `ctx`), 커리큘럼 표시, 사용법 한 줄 (`/ai-k8s-make-believe:cka <명령>` 또는 `$ <명령>`, 다 풀면 `/ai-k8s-make-believe:cka-submit`). 시뮬레이션이 약한 유형이면 "(추정) 출력이 섞입니다. Killercoda CKA 플레이그라운드로 보완을 권합니다" 한 줄.
 
 ### answer-key.md 형식
 
@@ -100,7 +100,7 @@ kubectl expose deploy web -n prod --name web-svc --port 80 --target-port 8080
 
 ## mode=giveup
 
-모의고사면 "모의고사 중에는 /cka-exam end 로 일괄 채점합니다" 만 반환한다. 아니면 모범 답안과 해설을 반환하고 "문제 종료" 로 간다.
+모의고사면 "모의고사 중에는 /ai-k8s-make-believe:cka-exam end 로 일괄 채점합니다" 만 반환한다. 아니면 모범 답안과 해설을 반환하고 "문제 종료" 로 간다.
 
 ## 문제 종료 (정답, 힌트 3단계, 포기 공통)
 
@@ -133,7 +133,7 @@ input: 문제 파일 경로 | 문항 수 (기본 16) | 빈 값
     "problems": [{"n": 1, "domain": "Troubleshooting", "weight": 7, "text": "...", "id": null}]}
    ```
 3. 1번 문제를 load 절차로 만든다 (`meta.mode = "exam"`). `problems[0].id` 를 채운다.
-4. 반환: 안내 (문항 수, 종료 시각, 힌트 없이 가상 에러 출력만 나옴, `/cka-exam next|prev|goto N|status|end`) + 1번 문제.
+4. 반환: 안내 (문항 수, 종료 시각, 힌트 없이 가상 에러 출력만 나옴, `/ai-k8s-make-believe:cka-exam next|prev|goto N|status|end`) + 1번 문제.
 
 ## mode=exam-goto
 

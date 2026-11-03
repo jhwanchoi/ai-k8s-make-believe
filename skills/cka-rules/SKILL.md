@@ -1,6 +1,6 @@
 ---
 name: cka-rules
-description: ai-k8s-make-believe(CKA 시뮬레이터) 공통 규칙. 프로젝트에 .cka/current 가 있는 상태에서 사용자가 kubectl, etcdctl, kubeadm, systemctl, journalctl, crictl, helm, kustomize, ssh 명령이나 Kubernetes YAML 을 "$ " 로 시작해 입력하거나 /cka, /cka-* 커맨드를 쓸 때 반드시 먼저 로드한다. 명령을 실제로 실행하지 않고 .cka/<id>/state.json 가상 상태로 시뮬레이션하는 방법을 정의한다.
+description: ai-k8s-make-believe(CKA 시뮬레이터) 공통 규칙. 프로젝트에 .cka/current 가 있는 상태에서 사용자가 kubectl, etcdctl, kubeadm, systemctl, journalctl, crictl, helm, kustomize, ssh 명령이나 Kubernetes YAML 을 "$ " 로 시작해 입력하거나 /ai-k8s-make-believe:cka, /ai-k8s-make-believe:cka-* 커맨드를 쓸 때 반드시 먼저 로드한다. 명령을 실제로 실행하지 않고 .cka/<id>/state.json 가상 상태로 시뮬레이션하는 방법을 정의한다.
 ---
 
 # ai-k8s-make-believe 규칙
@@ -33,7 +33,7 @@ web    1/1     Running   0          3m
 └── <id>/               # 예: q07-etcd-backup
     ├── problem.md      # 문제 원문, 요구사항, curriculum 표시
     ├── state.json      # 현재 가상 상태 (판정 기준)
-    ├── state.init.json # /cka-reset 용 초기 상태
+    ├── state.init.json # /ai-k8s-make-believe:cka-reset 용 초기 상태
     ├── history.md      # 명령, 가상 출력, 변경 내역 (append-only)
     └── answer-key.md   # 정답, 루브릭, 숨은 원인 (grader 전용)
 ```
@@ -101,10 +101,10 @@ CKA_HISTORY_EOF
 - 바이너리 파일은 `<binary: ...>` 설명 문자열로 둔다.
 - 처음 보여준 출력을 나중에 또 보여줄 일이 있으면 (예: `kubectl get ns` 목록) 그때 state 에 넣어 일관성을 지킨다.
 
-## 명령 처리 (/cka, "$ ..." 입력)
+## 명령 처리 (/ai-k8s-make-believe:cka, "$ ..." 입력)
 
-1. `.cka/current` 로 id 를 찾는다. 없으면 `/cka-load` 를 안내하고 끝낸다.
-2. `.cka/exam.json` 이 있으면 `date +%s` 를 `ends_at` 과 비교한다. 시간이 지났으면 명령을 받지 않고 `/cka-exam end` 를 안내한다.
+1. `.cka/current` 로 id 를 찾는다. 없으면 `/ai-k8s-make-believe:cka-load` 를 안내하고 끝낸다.
+2. `.cka/exam.json` 이 있으면 `date +%s` 를 `ends_at` 과 비교한다. 시간이 지났으면 명령을 받지 않고 `/ai-k8s-make-believe:cka-exam end` 를 안내한다.
 3. `state.json` 을 Read 한다.
 4. 여러 줄이면 한 줄씩 차례로, 실제 도구처럼 해석한다.
    - 문법, 플래그, 경로 오류: 실제 kubectl, etcdctl, kubeadm, systemctl, bash 와 같은 형식의 에러를 내고 상태는 바꾸지 않는다.
@@ -116,7 +116,7 @@ CKA_HISTORY_EOF
    - 전환: `kubectl config use-context` 는 meta.context, `ssh <node>` 와 `exit` 는 meta.host, `sudo -i` 는 meta.user 를 바꾼다.
    - state 에 없는 리소스는 실제처럼 `NotFound`.
 5. `meta.cmd_count` 를 1 올리고 (Edit) history 에 append 한다.
-6. 가상 출력을 보여준다. 채점은 사용자가 `/cka-submit` 할 때만 한다. 맞았는지 틀렸는지 먼저 말하지 않는다.
+6. 가상 출력을 보여준다. 채점은 사용자가 `/ai-k8s-make-believe:cka-submit` 할 때만 한다. 맞았는지 틀렸는지 먼저 말하지 않는다.
 
 ## grader 호출
 
