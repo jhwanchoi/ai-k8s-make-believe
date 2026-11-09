@@ -145,3 +145,12 @@ dialog::backdrop{background:#10243588}
 .resume-card h3{font-size:16px;margin:0 0 10px}
 .resume-card button{margin:5px 8px 0 0}
 #download-report-log{margin-bottom:14px}
+
+.attempts-card{grid-column:1/-1;min-width:0;margin-top:20px}
+.attempt-group{margin-top:24px;overflow-wrap:anywhere}
+.attempt-table{overflow:auto}
+.attempt-table table{min-width:560px}
+.attempt-table caption{text-align:left;padding:10px 0;font-size:13px}
+.attempt-table td{white-space:pre-line;min-width:160px}
+.attempt-table small{display:block;color:#596978;margin-top:5px}
+.attempt-table tfoot{background:#f1f6fc}

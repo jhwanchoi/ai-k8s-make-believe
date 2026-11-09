@@ -141,3 +141,7 @@ API 계약: `cmd({text, terminal, host})`의 terminal은 1 또는 2, host는 그
 API 계약: `resumeExam({log, answers?})`는 JSONL과 재선택 풀이를 받고 복원된 exam·questions·preferences·timing을 반환한다. 목업의 `bindLog(log)`는 UI와 API가 같은 남은 시간을 쓰는 로컬 시계 연결이다. **the real server writes the same format to .cka/exam-log.jsonl and GET /api/exam returns the restored state**. 실제 서버에서도 재생 중 cmd를 다시 실행하지 않으며 풀이·점수는 로그에 넣지 않는다.
 
 제한: 브라우저 저장소를 지우면 로그도 삭제된다. 저장 실패 중 이탈하면 다운로드하지 않은 메모리 로그는 유실된다. 강제 종료로 pause가 남지 않으면 마지막 이벤트 시각까지만 사용 시간을 추정한다. 전송 중 응답이 끝나기 전에 페이지가 종료되면 그 미완료 명령은 복원되지 않는다. 여러 탭에서 같은 시험을 동시에 쓰는 충돌 조정과 JSONL 파일 업로드는 이번 범위에 없다. 로그에는 사용자가 입력한 명령·메모와 문제 원문이 포함되므로 사용자가 직접 적은 민감 정보는 내려받은 파일에도 남는다.
+
+## 9. 시험 차시 기록
+
+시작 화면 아래 독립 카드의 [차시 기록 열기]에서 최대 1MiB JSONL 파일을 선택한다. 시험 화면으로 이동하지 않고 기존 이어 풀기 카드를 유지한다. 시험 경로별로 묶고 차시 번호순으로 문항 × 차시 표를 표시한다. 각 칸은 점수/배점과 명령 횟수, 직전 차시 대비 ▲ 상승·▼ 하락을 보여 주며 마지막 차시 미득점 문항은 “다시 볼 문항”으로 표시한다. 아래 행에는 총점 %, 합격 여부, 한국어 종료 일시, 소요 분을 표시한다. 자동 출제는 총점 목록만 표시한다. 잘못된 줄은 건너뛰고 “n줄을 읽지 못했습니다”를 안내하며 모든 문자열은 textContent로 표시한다. real server: GET /api/attempts serves the same JSONL; the mock uses file selection. 기록은 읽기만 하며 시험 이벤트 로그나 브라우저 저장소에 추가하지 않는다.
