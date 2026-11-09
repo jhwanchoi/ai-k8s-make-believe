@@ -1,28 +1,30 @@
 ---
 name: cka-import
-description: ai-k8s-make-believe 모의고사 문제 가져오기. 사용자가 CKA 연습문제 GitHub 저장소 링크(예 https://github.com/vj2201/CKA-PREP-2025-v2)를 주며 "이 문제로 풀자", "문제 받아 줘", "문제/답 md 만들어 줘" 라고 하면 부른다. 연습 폴더에 시뮬레이터 문제 파일(<name>.md)과 풀이 파일(<name>.answers.md)을 만든다. 문제 원문은 저장소에 커밋하지 않는다.
+description: ai-k8s-make-believe 모의고사 문제 가져오기. 사용자가 CKA 연습문제 GitHub 저장소 링크(`https://github.com/<owner>/<repo>`)를 주며 "이 문제로 풀자", "문제 받아 줘", "문제/답 md 만들어 줘" 라고 하면 부른다. 연습 폴더에 시뮬레이터 문제 파일(<name>.md), 풀이 파일(<name>.answers.md), 환경 파일(<name>.setup.md)을 만든다. 문제 원문은 저장소에 커밋하지 않는다.
 ---
 
 # 문제 가져오기 (링크 → 문제 · 풀이 md)
 
-링크 하나를 받아 연습 폴더에 두 파일을 만든다.
+링크 하나를 받아 연습 폴더에 세 파일을 만든다.
 
 | 파일 | 담는 것 | 누가 보나 |
 |---|---|---|
 | `<name>.md` | 문제 원문, 문항마다 `domain` · `weight` | 시험 중 화면 · grader |
 | `<name>.answers.md` | 문항마다 원본 풀이 ```` ```bash ```` 블록 | 시험이 끝난 뒤에만 |
+| `<name>.setup.md` | 문항마다 원본 환경 준비 스크립트(`LabSetUp.bash`) | grader 만 — 가상 초기 상태를 만들 때. 고장 원인이 드러나므로 응시자에게 보이지 않는다 |
 
 ## 규칙
 
 - **저장소에 올리지 않는다.** 원본 대부분은 라이선스가 없거나 원작자 권리가 있다. 파일은 사용자 연습 폴더에만 둔다(기본 `./exams/`). 플러그인 저장소 안이면 멈추고 다른 폴더를 묻는다.
 - **덤프 경고.** 원본에 실제 시험을 옮긴 흔적("In the exam ...", "real exam question" 등)이 보이면 한 줄로 알린다: 실제 시험 유출 문제는 CNCF 응시 약관 위반이라 자격이 취소될 수 있다. 진행 여부는 사용자가 정한다.
-- 문제 파일에는 풀이 · 풀이 영상 링크를 넣지 않는다.
+- 문제 파일에는 풀이 · 풀이 영상 링크 · 환경 준비 내용을 넣지 않는다. 대화에도 풀이 · 환경 내용을 옮기지 않는다.
+- 이미 파일이 있으면 스크립트가 멈춘다. 사용자가 손으로 고친 메모가 있을 수 있으니 덮어쓸지 묻고, 동의하면 `--force`.
 - 사용자 명령을 실행하지 않는 `cka-rules` 규칙은 그대로다. 여기서 Bash 는 `curl`, `python3 <plugin_root>/scripts/import_cka_prep.py` 에만 쓴다.
 
 ## 절차
 
 1. 출력 폴더를 정한다. 사용자가 말하지 않았으면 현재 작업 디렉터리의 `exams/`.
-2. CKA-PREP 형식(`Question-<n> <주제>/Questions.bash`, `SolutionNotes.bash`)이면 스크립트로 만든다.
+2. CKA-PREP 형식(`Question-<n> <주제>/Questions.bash`, `SolutionNotes.bash`, `LabSetUp.bash`)이면 스크립트로 만든다.
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/scripts/import_cka_prep.py <링크> exams
    ```
@@ -39,10 +41,11 @@ description: ai-k8s-make-believe 모의고사 문제 가져오기. 사용자가 
      <문제 원문>
      ```
      번호는 1부터 연속, 배점 합은 100(원본에 배점이 없으면 균등). domain 은 Troubleshooting · Cluster Architecture, Installation & Configuration · Services & Networking · Workloads & Scheduling · Storage 중 하나.
-   - 풀이 파일 양식: `# 제목`, 머리말, 문항마다 `## Q<n>`, 빈 줄, ```` ```bash ```` 블록(원본 풀이 그대로). 풀이가 없는 문항은 블록 안에 `# (원본에 풀이 없음)`.
+   - 풀이 파일 양식: `# 제목`, 머리말, 문항마다 `## Q<n>`, 빈 줄, ```` ```bash ```` 블록(원본 풀이 그대로). 블록 뒤 빈 줄과 `(원본: [Question-<n>](https://github.com/<owner>/<repo>/tree/<ref>))` 줄을 둔다. 풀이가 없는 문항은 블록 안에 `# (원본에 풀이 없음)`.
+   - 환경 파일 양식: `# 제목`, 머리말, 문항마다 `## Q<n>`, 빈 줄, bash 블록이며 원본 링크 줄은 쓰지 않는다. 블록에 원본 환경 준비 스크립트를 담는다. 없으면 `# (원본에 환경 준비 없음)`.
    - 원본 문장은 바꾸지 않는다. 주석 기호 · 영상 링크만 뺀다.
 4. 형식을 검사한다. 통과할 때까지 고친다.
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/scripts/import_cka_prep.py --check exams/<name>.md exams/<name>.answers.md
    ```
-5. 알린다: 두 파일 경로, 문항 수, 도메인별 문항 수, 덤프 경고(해당하면), 시작 방법 한 줄 — 시뮬레이터 화면에서 두 파일을 고르거나 `/ai-k8s-make-believe:cka-exam start exams/<name>.md`. 풀이 내용은 대화에 옮기지 않는다.
+5. 알린다: 세 파일 경로, 문항 수, 도메인별 문항 수, 덤프 경고(해당하면), 시작 방법 한 줄 — 시뮬레이터 화면에서 두 파일을 고르거나 `/ai-k8s-make-believe:cka-exam start exams/<name>.md`. 풀이 내용은 대화에 옮기지 않는다.
