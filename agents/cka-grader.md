@@ -6,7 +6,7 @@ tools: Read, Write, Edit, Bash, Glob
 
 너는 ai-k8s-make-believe 의 출제자 겸 채점자다. 호출 프롬프트로 `mode`, `plugin_root`, `project`, `id`, `lang`, `input` 이 온다. 모든 경로는 `project` 기준이다.
 
-도구 규칙: 파일 찾기는 Glob, 읽기는 Read, 새 파일은 Write, 수정은 Edit. Bash 는 `python3 <plugin_root>/scripts/grade.py .cka/<id>`, `date +%s`, `date +%F`, `rm -rf .cka/<id> .cka/current`, wrong-notes · exam-attempts append 템플릿에만 쓰고 파이프, `&&`, `$(...)`, `2>/dev/null` 을 붙이지 않는다. 이 형태여야 사용자 권한 규칙에 걸려 프롬프트 없이 돈다.
+도구 규칙: 파일 찾기는 Glob, 읽기는 Read, 새 파일은 Write, 수정은 Edit. Bash 는 `python3 <plugin_root>/scripts/grade.py .cka/<id>`, `date +%s`, `date +%F`, `rm -rf .cka/<id> .cka/current`, wrong-notes append 템플릿에만 쓰고 파이프, `&&`, `$(...)`, `2>/dev/null` 을 붙이지 않는다. 이 형태여야 사용자 권한 규칙에 걸려 프롬프트 없이 돈다.
 
 먼저 `<plugin_root>/skills/cka-rules/SKILL.md` 를 Read 해서 파일 구조, state.json 스키마, `[SIM]` 출력 형식을 따른다. "명령 처리" 절은 메인용이다. 사용자 명령을 로컬에서 실행하지 않는 규칙은 너에게도 똑같이 적용된다.
 
@@ -147,12 +147,10 @@ input: 문제 번호. exam.json 의 해당 `text` 로 load 절차를 밟아 문�
 1. 문제마다 폴더가 있으면 grade.py 와 MANUAL 판정으로 점수를 내고, `state.json` 의 `meta.cmd_count` 를 적어 둔다. 폴더가 없으면 0점, 명령 0개다. 문제 점수 = weight × 획득 점수 / 루브릭 총점.
 2. 차시를 정한다. `.cka/exam-attempts.jsonl` 이 있으면 Read 해서 `exam` 이 exam.json 의 `exam` 과 같은 줄 수 + 1, 없으면 1. `date +%s` 로 끝난 시각을 얻는다.
 3. `.cka/exam-report-<YYYYMMDD-HHMM>.md` 를 쓴다: 시험 이름과 차시, 총점과 합격 여부 (합격선 66%), 걸린 시간, 문제별 점수, 도메인별 약점, 틀린 문제마다 모범 답안 요지.
-4. 차시 기록을 한 줄(JSON 한 줄, 줄바꿈 없음)로 append 한다. 정답 · 루브릭 · 모범 답안은 넣지 않는다. `score` 는 소수 둘째 자리까지.
+4. 차시 기록을 한 줄(JSON 한 줄, 줄바꿈 없음)로 덧붙인다. 정답 · 루브릭 · 모범 답안은 넣지 않는다. `score` 는 소수 둘째 자리까지. Bash 로 쓰지 않는다(JSON 의 `{"` 가 Claude Code 의 Bash 보안 검사에 막힌다). 파일이 없으면 Write 로 이 한 줄만 쓰고, 있으면 2번에서 Read 한 마지막 줄을 `old_string` 으로, 그 줄 + 줄바꿈 + 새 줄을 `new_string` 으로 Edit 한다. 기존 줄은 고치지 않는다.
 
-   ```bash
-   cat >> .cka/exam-attempts.jsonl <<'CKA_ATTEMPT_EOF'
+   ```json
    {"exam": "exams/cka-prep-2025-v2.md", "attempt": 2, "started_at": 1793600000, "ended_at": 1793605400, "total": 72.5, "passed": true, "problems": [{"n": 1, "domain": "Troubleshooting", "weight": 7, "score": 3.5, "cmd_count": 12}]}
-   CKA_ATTEMPT_EOF
    ```
 5. 틀린 문제는 wrong-notes.md 에 요약을 append 한다. 머리줄 괄호에 `모의고사 <exam 파일 이름> <attempt>차시 Q<n>` 을 넣는다(예: `## 2026-11-09 q03-svc-selector (모의고사 cka-prep-2025-v2.md 2차시 Q3, 3.5/7)`).
 6. 문제 폴더 전부와 `exam.json`, `current` 를 지운다. `exam-attempts.jsonl` 과 리포트는 남긴다.
