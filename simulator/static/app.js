@@ -50,6 +50,81 @@
     else eventLog?.append('flag', {n: exam.current, value: $('flag').checked});
     updateFlags();
   }
+  $('direct-attempts').append(document.querySelector('.attempts-card'));
+  let catalogSelection = null, catalogToken = 0, catalogBusy = false;
+  function savedFor(entry) {
+    return window.ExamLog.saved(notice).find(saved => saved.key === window.ExamLog.findKey(entry.text));
+  }
+  function showCatalogSelection(entry) {
+    catalogSelection = entry;
+    $('exam-selection').hidden = false;
+    $('selected-exam-name').textContent = entry.file.name;
+    if (entry.attempts.length) window.AttemptsUI.renderAttempts($('exam-attempts'), {groups: [{exam: entry.file.name, attempts: entry.attempts}], skipped: 0});
+    else $('exam-attempts').textContent = '첫 차시입니다';
+    $('solution-note').textContent = entry.solution ? '' : '풀이 파일이 없어 종료 후 풀이를 볼 수 없습니다';
+    const saved = savedFor(entry), next = entry.attempts.length + 1;
+    $('catalog-resume').hidden = !saved;
+    $('catalog-resume').textContent = `${next}차시 이어서 풀기`;
+    $('catalog-start').textContent = `${saved ? '버리고 ' : ''}${next}차시 새로 시작`;
+    $('catalog-start').disabled = $('catalog-resume').disabled = !!entry.error || catalogBusy;
+  }
+  $('practice-folder').onchange = async () => {
+    const token = ++catalogToken;
+    catalogSelection = null; $('exam-selection').hidden = true;
+    $('exam-list').textContent = '시험 목록을 읽고 있습니다…';
+    try {
+      const result = await window.ExamCatalog.load($('practice-folder').files, api.parseFile, window.AttemptsUI.parseAttempts);
+      if (token !== catalogToken) return;
+      $('exam-list').replaceChildren();
+      if (!result.exams.length) $('exam-list').textContent = '시험 파일이 없습니다.';
+      for (const entry of result.exams) {
+        const label = document.createElement('label'), radio = document.createElement('input');
+        radio.type = 'radio'; radio.name = 'catalog-exam';
+        radio.onchange = () => showCatalogSelection(entry);
+        label.append(radio, document.createTextNode(`${entry.file.name} · ${entry.error || entry.count + '문항'} · 풀이 ${entry.solution ? '있음' : '없음'} · 지난 차시 ${entry.attempts.length}회`));
+        $('exam-list').append(label);
+      }
+      notice(result.skipped ? `${result.skipped}줄을 읽지 못했습니다` : '시험을 선택하세요.');
+    } catch (error) { if (token === catalogToken) $('exam-list').textContent = error.message; }
+  };
+  async function beginCatalog(resuming) {
+    if (catalogBusy || busy || readingAnswers || !catalogSelection || catalogSelection.error) return;
+    if (!resuming && !$('minutes').reportValidity()) return;
+    const entry = catalogSelection, saved = savedFor(entry);
+    if (!resuming && saved && !window.confirm('진행 중인 로그를 버리고 새 차시를 시작할까요?')) return;
+    catalogBusy = true;
+    $('practice-folder').disabled = true;
+    $('exam-list').inert = $('direct-files').inert = true;
+    $('start-example').disabled = true;
+    showCatalogSelection(entry);
+    try {
+      ++answersToken; selectedAnswers = null; answerCount = 0;
+      if (entry.solution) {
+        if (entry.solution.size > 1024 * 1024) throw Error('풀이 파일은 1MiB 이하로 선택하세요.');
+        const text = await entry.solution.text();
+        answerCount = api.parseAnswers(text).length;
+        selectedAnswers = {name: entry.solution.name, text};
+      }
+      selectedFile = {name: entry.file.name, text: entry.text};
+      if (resuming) {
+        if (!saved) throw Error('이어 풀 기록이 없습니다.');
+        await resumeSaved(saved);
+      } else {
+        if (saved) {
+          if (localStorage.getItem(saved.key) !== saved.log) throw Error('로그가 변경되었습니다. 다시 선택하세요.');
+          localStorage.removeItem(saved.key);
+        }
+        await start(selectedFile, selectedAnswers);
+      }
+    } catch (error) { notice(error.message); }
+    finally {
+      catalogBusy = false; $('practice-folder').disabled = false;
+      $('exam-list').inert = $('direct-files').inert = false;
+      $('start-example').disabled = false; showCatalogSelection(entry);
+    }
+  }
+  $('catalog-start').onclick = () => beginCatalog(false);
+  $('catalog-resume').onclick = () => beginCatalog(true);
   const resumeUI = new window.ResumeUI({container: $('resume-cards'), onResume: resumeSaved, onError: notice});
   function installExam(restored = null) {
     terminals.reset(); desktop.closeFirefox(); expired = false;
@@ -217,6 +292,7 @@
     if (!file) { $('answers-preview').textContent = '선택하지 않아도 시작할 수 있습니다. 풀이는 종료 후에만 표시됩니다.'; return; }
     readingAnswers = true; $('answers-preview').textContent = '풀이 파일 형식을 확인하고 있습니다…';
     try {
+      if (/\.setup\.md$/.test(file.name) || (file.webkitRelativePath || '').split('/').includes('.cka')) throw Error('환경 및 내부 파일은 읽지 않습니다.');
       if (file.size > 1024 * 1024) throw Error('풀이 파일은 1MiB 이하로 선택하세요.');
       const text = await file.text();
       if (token !== answersToken) return;
@@ -246,6 +322,7 @@
     const file = $('file').files[0]; selectedFile = null; $('start-file').disabled = true;
     if (!file) { previewAnswers(); return; }
     try {
+      if (/\.setup\.md$/.test(file.name) || (file.webkitRelativePath || '').split('/').includes('.cka')) throw Error('환경 및 내부 파일은 읽지 않습니다.');
       if (file.size > 1024 * 1024) throw Error('문제 파일은 1MiB 이하로 선택하세요.');
       const text = await file.text();
       if (token !== fileToken) return;
@@ -270,7 +347,7 @@
   $('end').onclick = () => { $('controls-menu').open = false; showEnd(expired); }; $('cancel-end').onclick = () => { $('end-dialog').close(); $('end').focus(); };
   $('confirm-end').onclick = end;
   $('end-dialog').addEventListener('close', () => { if (expired && exam && !exam.ended) notice('시간 만료 — Exam Controls ▸ 시험 종료로 리포트를 보세요.'); }); // Chrome 은 Esc 로 닫은 모달을 다시 띄워 가두는 것을 막는다. 출구는 #end
-  $('restart').onclick = () => { screen('start'); exam = null; $('report-rows').replaceChildren(); notice(''); resumeUI.refresh(); $('start-example').focus(); };
+  $('restart').onclick = () => { screen('start'); exam = null; $('report-rows').replaceChildren(); notice(''); resumeUI.refresh(); if (catalogSelection) showCatalogSelection(catalogSelection); $('start-example').focus(); };
   function resize(id, property, initial, min, max, sign) {
     let value = initial;
     function apply(next) { value = Math.max(min, Math.min(max, next)); $('workspace').style.setProperty(property, `${value}%`); $(id).setAttribute('aria-valuenow', Math.round(value)); }

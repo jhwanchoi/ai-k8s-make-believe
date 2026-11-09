@@ -154,3 +154,5 @@ dialog::backdrop{background:#10243588}
 .attempt-table td{white-space:pre-line;min-width:160px}
 .attempt-table small{display:block;color:#596978;margin-top:5px}
 .attempt-table tfoot{background:#f1f6fc}
+
+#exam-list input[type="radio"]{width:auto;margin-right:8px}

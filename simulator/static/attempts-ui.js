@@ -85,6 +85,7 @@
       container.append(section);
     }
   }
+  if (typeof window !== 'undefined') window.AttemptsUI = {parseAttempts, renderAttempts};
   if (typeof module !== 'undefined' && module.exports) module.exports = {parseAttempts, scoreTrend, renderAttempts};
   if (typeof document !== 'undefined') {
     const input = document.getElementById('attempts-file');
@@ -95,6 +96,7 @@
       const current = ++selection, file = input.files[0];
       if (!file) return;
       results.textContent = '차시 기록을 읽는 중입니다.';
+      if (/\.setup\.md$/.test(file.name) || ((file.webkitRelativePath || '').split('/').includes('.cka') && file.name !== 'exam-attempts.jsonl')) { results.textContent = '환경 및 내부 파일은 읽지 않습니다.'; return; }
       if (file.size > 1024 * 1024) { results.textContent = '1MiB 이하의 파일을 선택하세요.'; return; }
       try {
         const text = await file.text();
