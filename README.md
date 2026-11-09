@@ -64,7 +64,7 @@ Claude Code는 플러그인 커맨드를 `/플러그인이름:커맨드` 형태�
 | `/ai-k8s-make-believe:cka-hint` | 다음 단계 힌트를 받습니다 (방향, 위치, 정답 공개 순) |
 | `/ai-k8s-make-believe:cka-giveup` | 정답과 해설을 보고 문제를 정리합니다 |
 | `/ai-k8s-make-believe:cka-reset` | 가상 환경을 처음 상태로 되돌립니다. 시도와 힌트 횟수는 그대로입니다 |
-| `/ai-k8s-make-believe:cka-exam start \| next \| prev \| goto N \| status \| end` | 2시간 모의고사입니다. 힌트 없이 풀고 끝나면 한꺼번에 채점합니다 |
+| `/ai-k8s-make-believe:cka-exam start \| next \| prev \| goto N \| status \| end` | 2시간 모의고사입니다. 힌트 없이 풀고 끝나면 한꺼번에 채점합니다. 같은 문제 파일로 다시 보면 `exam-attempts.jsonl` 에 1차시 · 2차시 … 로 쌓입니다 |
 
 | 내부 구성 | 역할 |
 |---|---|
@@ -110,6 +110,7 @@ flowchart LR
 .cka/
 ├── current             # 풀고 있는 문제 id
 ├── wrong-notes.md      # 오답 노트
+├── exam-attempts.jsonl # 모의고사 차시 기록 (같은 시험을 다시 보면 1차시 · 2차시 …)
 └── q07-etcd-backup/
     ├── problem.md
     ├── state.json      # 가상 상태 (채점 기준)

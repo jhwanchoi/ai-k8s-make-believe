@@ -30,6 +30,8 @@ web    1/1     Running   0          3m
 ├── current             # 진행 중 문제 id 한 줄 (.cka/ 가 있으면 guard 훅이 켜진다)
 ├── exam.json           # 모의고사 중에만
 ├── wrong-notes.md      # 오답 노트 (문제별 3~5줄)
+├── exam-attempts.jsonl # 모의고사 차시 기록 (끝날 때마다 한 줄, append-only)
+├── exam-report-*.md    # 모의고사 리포트
 └── <id>/               # 예: q07-etcd-backup
     ├── problem.md      # 문제 원문, 요구사항, curriculum 표시
     ├── state.json      # 현재 가상 상태 (판정 기준)
