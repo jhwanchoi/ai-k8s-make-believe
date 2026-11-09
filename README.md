@@ -72,6 +72,8 @@ Claude Code는 플러그인 커맨드를 `/플러그인이름:커맨드` 형태�
 | `cka-grader` agent | 출제, 채점, 힌트, 모의고사 리포트. 정답을 읽는 유일한 주체 |
 | `scripts/grade.py` | 루브릭 항목을 상태 파일과 결정적으로 비교 |
 | `scripts/guard.py` | 연습 디렉터리에서 실제 `kubectl` 같은 명령 실행을 막는 훅 |
+| `cka-import` skill | GitHub 문제 저장소 링크를 받아 연습 폴더에 문제(`<name>.md`) · 풀이(`<name>.answers.md`) 파일을 만듦 |
+| `scripts/import_cka_prep.py` | CKA-PREP 형식 저장소를 위 두 파일로 바꾸고 형식을 검사(`--check`) |
 
 ```mermaid
 flowchart LR
@@ -83,6 +85,18 @@ flowchart LR
   G -- "grade.py 채점" --> F
   K{{guard 훅}} -. "실제 실행 차단" .-> M
 ```
+
+## 문제 저장소 가져오기
+
+공개 연습문제 저장소 링크를 주면 연습 폴더(기본 `./exams/`)에 문제 파일과 풀이 파일을 만듭니다. 파일은 각자 로컬에만 두고 이 저장소에는 올리지 않습니다.
+
+```
+이 링크로 문제/답 md 만들어 줘: https://github.com/vj2201/CKA-PREP-2025-v2
+```
+
+- `Question-<n> <주제>/Questions.bash`, `SolutionNotes.bash` 형식(CKA-PREP)은 스크립트가 바로 바꿉니다. 다른 형식은 Claude가 읽고 같은 양식으로 쓴 뒤 `--check`로 검사합니다.
+- 풀이 파일은 시험이 끝난 뒤에만 엽니다.
+- 원본에 실제 시험을 옮긴 흔적이 보이면 경고합니다. 덤프는 CNCF 응시 약관 위반입니다.
 
 ## 동작 방식
 
