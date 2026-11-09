@@ -4,10 +4,14 @@
   const $ = id => document.getElementById(id);
   const api = window.MockAPI;
   let exam, selectedFile, selectedAnswers = null, answerCount = 0, readingAnswers = false, busy = false, expired = false, timer;
-  let preferences = {}, storageKey = '';
+  let preferences = {}, eventLog = null, ownershipLost = false;
+  const conflictMessage = '다른 탭에서 이 시험을 이어 풀고 있습니다. 이 탭은 닫으세요';
+  function loseOwnership() { ownershipLost = true; setBusy(false); $('exam').inert = $('exam-menus').inert = true; notice(conflictMessage); }
   let fileToken = 0, answersToken = 0;
   let elapsedInterval, waitStarted;
-  const notice = text => { $('notice').textContent = text; };
+  let storageWarning = '';
+  const notice = text => { $('notice').textContent = [ownershipLost ? conflictMessage : text, storageWarning].filter(Boolean).join(' · '); };
+  const storageNotice = text => { storageWarning = text; notice(''); };
   function screen(id) {
     for (const name of ['start', 'exam', 'report']) $(name).hidden = name !== id;
     $('exam-menus').hidden = id !== 'exam';
@@ -16,19 +20,22 @@
   const current = () => exam.problems[exam.current - 1];
   const terminals = new window.TerminalWorkspace({
     api, container: $('terminal-workspace'), addButton: $('add-terminal'),
-    onPending: () => { setBusy(busy); tick(); if (expired) $('confirm-end').disabled = busy || terminals.pending; },
-    onError: notice,
-    isExpired: () => expired
+    onPending: () => { setBusy(busy); tick(); if (expired) $('confirm-end').disabled = busy || terminals.pending || ownershipLost; },
+    onError: notice, onEvent: (type, data) => eventLog?.append(type, data),
+    isExpired: () => expired || ownershipLost
   });
   const desktop = new window.DesktopUI({terminals});
   terminals.onWindows = () => desktop.syncTerminals();
-  const occupied = () => busy || terminals.pending;
+  const occupied = () => busy || terminals.pending || ownershipLost;
   function setBusy(value, message = '') {
     busy = value;
-    for (const id of ['prev', 'next', 'jump', 'end', 'submit-question']) $(id).disabled = occupied() || expired;
+    for (const id of ['prev', 'next', 'jump', 'submit-question']) $(id).disabled = occupied() || expired;
     $('prev').disabled ||= exam?.current === 1;
     $('next').disabled ||= exam?.current === exam?.problems.length;
-    terminals.lock(busy);
+    $('end').disabled = occupied();
+    terminals.lock(busy || ownershipLost);
+    $('notes').disabled = $('flag').disabled = ownershipLost;
+    $('confirm-end').disabled ||= ownershipLost;
     if (terminals.state) desktop.syncTerminals();
     $('command-status').textContent = message || (expired ? '시간 만료' : terminals.pending ? '명령 처리 중' : '가상 환경');
     clearInterval(elapsedInterval);
@@ -37,11 +44,40 @@
       elapsedInterval = setInterval(() => { $('command-status').textContent = `${message} · ${Math.floor((Date.now() - waitStarted) / 1000)}초 경과`; }, 1000);
     }
   }
-  function savePreferences() {
+  function savePreferences(kind) {
     preferences[exam.current] = {note: $('notes').value, flag: $('flag').checked};
-    try { localStorage.setItem(storageKey, JSON.stringify(preferences)); }
-    catch { notice('브라우저 저장소를 사용할 수 없어 메모와 플래그는 현재 화면에서만 유지됩니다.'); }
+    if (kind === 'memo') eventLog?.memo(exam.current, $('notes').value);
+    else eventLog?.append('flag', {n: exam.current, value: $('flag').checked});
     updateFlags();
+  }
+  const resumeUI = new window.ResumeUI({container: $('resume-cards'), onResume: resumeSaved, onError: notice});
+  function installExam(restored = null) {
+    terminals.reset(); desktop.closeFirefox(); expired = false;
+    $('exam').inert = $('exam-menus').inert = ownershipLost;
+    preferences = restored?.preferences || {};
+    if (restored) terminals.questions = restored.questions;
+    api.bindLog(eventLog);
+    $('jump').replaceChildren(...exam.problems.map(p => new Option(`Q${p.n}`, p.n)));
+    screen('exam'); renderQuestion(); tick(); clearInterval(timer); timer = setInterval(tick, 250); terminals.focus();
+  }
+  async function resumeSaved(saved) {
+    if (readingAnswers || busy) { notice('파일 읽기 또는 요청이 끝난 뒤 이어 풀어 주세요.'); return; }
+    busy = true;
+    try {
+      resumeUI.refresh(saved.events[0].problemText);
+      const raw = localStorage.getItem(saved.key);
+      if (raw === null) throw Error('시험 로그가 삭제되었습니다.');
+      const recovered = new window.ExamLog({log: raw});
+      if (!window.ExamLog.timing(recovered.events).paused) recovered.append('pause', {at: recovered.events.at(-1).t}, false);
+      const restored = await api.resumeExam({log: recovered.text, answers: selectedAnswers});
+      exam = restored.exam; selectedFile = {name: 'resumed.md', text: saved.events[0].problemText};
+      ownershipLost = false;
+      eventLog = new window.ExamLog({log: recovered.text, key: saved.key, expected: raw, onError: storageNotice, onConflict: loseOwnership}); eventLog.resume();
+      $('report-rows').replaceChildren(); installExam(restored);
+      previewAnswers();
+      notice('진행 기록을 복원했습니다. 나간 동안의 시간은 제외합니다.' + (selectedAnswers && answerCount !== exam.problems.length ? ` 경고: 문제 ${exam.problems.length}문항과 풀이 개수가 다릅니다. 시작은 가능합니다.` : ''));
+    } catch (error) { notice(error.message); }
+    finally { busy = false; if (exam) setBusy(false); }
   }
   function updateFlags() {
     for (const p of exam.problems) {
@@ -64,17 +100,21 @@
   async function start(file, answers = null) {
     if (answers && readingAnswers) return;
     if (!$('minutes').reportValidity()) return;
+    const key = window.ExamLog.findKey(file.text);
+    const existing = window.ExamLog.saved(notice).find(saved => saved.key === key);
+    if (existing) { resumeUI.refresh(file.text); notice('진행 중인 시험이 있습니다. 이어 풀거나 버리고 새로 시작하세요.'); return; }
+    let storageDisabled = false;
+    try { window.ExamLog.archive(key); } catch { storageDisabled = true; storageNotice('이전 로그를 보존하기 위해 이번 시험은 메모리에만 기록합니다. [로그 내려받기]로 보관하세요.'); }
+    const expected = localStorage.getItem(key);
     $('start-file').disabled = $('start-example').disabled = $('file').disabled = $('answers-file').disabled = true;
     $('report-rows').replaceChildren();
     notice('가상 시험 환경을 준비하고 있습니다. 약 1~3초 걸립니다.');
     try {
       exam = await api.startExam({file, answers, minutes: Number($('minutes').value)});
-      terminals.reset(); desktop.closeFirefox(); expired = false; preferences = {};
-      storageKey = notesKey(file.text, exam.problems.length);
-      try { const data = JSON.parse(localStorage.getItem(storageKey) || '{}'); if (data && typeof data === 'object') preferences = data; }
-      catch { notice('저장된 메모를 불러올 수 없습니다.'); }
-      $('jump').replaceChildren(...exam.problems.map(p => new Option(`Q${p.n}`, p.n)));
-      screen('exam'); renderQuestion(); tick(); timer = setInterval(tick, 250);
+      ownershipLost = false;
+      eventLog = new window.ExamLog({onError: storageNotice, storageDisabled, key, expected, onConflict: loseOwnership});
+      eventLog.append('start', {title: exam.title, problemText: file.text, minutes: Number($('minutes').value)});
+      installExam();
       notice('목업 모드 · 응답과 점수는 고정 예시입니다. 실제 명령을 실행하지 않습니다.');
       terminals.focus();
     } catch (error) { notice(error.message); }
@@ -82,21 +122,21 @@
   }
   function tick() {
     if (!exam || exam.ended) return;
-    const seconds = Math.max(0, Math.ceil(exam.ends_at - Date.now() / 1000));
-    const ratio = Math.max(0, Math.min(100, seconds / (exam.ends_at - exam.started_at) * 100));
+    const seconds = Math.ceil(eventLog.remaining());
+    const ratio = Math.max(0, Math.min(100, seconds / (eventLog.events[0].minutes * 60) * 100));
     $('time-fill').style.width = `${ratio}%`;
     $('time-progress').setAttribute('aria-valuenow', Math.round(ratio));
     $('timer').textContent = `${Math.ceil(seconds / 60)} minutes · ${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
     $('time-progress').className = 'time-progress ' + (seconds <= 300 ? 'critical' : seconds <= 600 ? 'warn' : '');
     if (!seconds && !expired) {
-      expired = true; clearInterval(timer); setBusy(busy, occupied() ? '진행 중 응답을 마무리하고 있습니다.' : '');
+      expired = true; eventLog.pause(); clearInterval(timer); setBusy(busy, occupied() ? '진행 중 응답을 마무리하고 있습니다.' : '');
       showEnd(true);
     }
   }
   async function goto(n) {
     if (occupied() || expired || n < 1 || n > exam.problems.length || n === exam.current) return;
     setBusy(true, '문항을 불러오고 있습니다');
-    try { exam = await api.gotoExam({n}); renderQuestion(); $('question-heading').tabIndex = -1; $('question-heading').focus(); }
+    try { exam = await api.gotoExam({n}); eventLog.append('goto', {n}); renderQuestion(); $('question-heading').tabIndex = -1; $('question-heading').focus(); }
     catch (error) { notice(error.message); $('jump').value = exam.current; }
     finally { setBusy(false); tick(); if (expired) $('confirm-end').disabled = false; }
   }
@@ -114,7 +154,9 @@
     $('confirm-end').disabled = $('cancel-end').disabled = true;
     $('end-status').textContent = '채점 중… 약 1~3초 걸립니다.';
     try {
-      const result = await api.endExam(); exam.ended = true; clearInterval(timer);
+      const result = await api.endExam(); exam.ended = true; eventLog.append('end'); clearInterval(timer);
+      const elapsed = window.ExamLog.timing(eventLog.events).elapsed;
+      $('actual-time').textContent = `실제 사용 시간: ${Math.floor(elapsed / 60)}분 ${Math.floor(elapsed % 60)}초 (자리 비운 시간 제외)`;
       $('score').textContent = `${result.total}%`;
       $('result').textContent = result.passed ? '합격 (목업)' : '불합격 (목업)';
       $('report-rows').replaceChildren();
@@ -159,11 +201,6 @@
       button.setAttribute('aria-expanded', !detail.hidden); button.textContent = detail.hidden ? '풀이 보기' : '풀이 닫기';
     };
   }
-  function notesKey(text, count) {
-    let hash = 0x811c9dc5;
-    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
-    return `k12s-notes:${hash.toString(16).padStart(8, '0')}:${count}`;
-  }
   function previewAnswers() {
     if (!selectedAnswers) return;
     let count;
@@ -194,7 +231,7 @@
     $('submit-status').textContent = '제출 기록 중…';
     try {
       const result = await api.submit();
-      exam = result.exam;
+      exam = result.exam; eventLog.append('submit', {n: exam.current});
       $('submit-status').textContent = result.message;
       notice(result.message); updateFlags();
     } catch (error) { $('submit-status').textContent = error.message; }
@@ -215,12 +252,13 @@
       const parsed = api.parseFile(text);
       selectedFile = {name: file.name, text};
       $('preview').textContent = `${parsed.title}\n${parsed.problems.length}문항 · 총 배점 100%\n` + parsed.problems.map(p => `Q${p.n} · ${p.domain} · ${p.weight}%`).join('\n');
-      $('start-file').disabled = false; notice('문제 파일을 확인했습니다.'); previewAnswers();
+      $('start-file').disabled = false; notice('문제 파일을 확인했습니다.'); previewAnswers(); resumeUI.refresh(text);
     } catch (error) { if (token !== fileToken) return; $('preview').textContent = error.message; notice(error.message); previewAnswers(); }
   };
   $('start-file').onclick = () => { if (readingAnswers) { notice('풀이 파일 확인이 끝난 뒤 시작하세요.'); return; } return start(selectedFile, selectedAnswers); };
   $('start-example').onclick = () => start(api.exampleFile());
-  $('notes').oninput = $('flag').onchange = savePreferences;
+  $('notes').oninput = () => savePreferences('memo');
+  $('flag').onchange = () => savePreferences('flag');
   $('prev').onclick = () => goto(exam.current - 1); $('next').onclick = () => goto(exam.current + 1);
   $('jump').onchange = () => goto(Number($('jump').value));
   document.addEventListener('keydown', e => {
@@ -229,10 +267,10 @@
     if (['TEXTAREA', 'INPUT', 'SELECT'].includes(e.target?.tagName)) return;
     e.preventDefault(); goto(exam.current + (e.key === 'ArrowRight' ? 1 : -1));
   });
-  $('end').onclick = () => { $('controls-menu').open = false; showEnd(); }; $('cancel-end').onclick = () => { $('end-dialog').close(); $('end').focus(); };
+  $('end').onclick = () => { $('controls-menu').open = false; showEnd(expired); }; $('cancel-end').onclick = () => { $('end-dialog').close(); $('end').focus(); };
   $('confirm-end').onclick = end;
-  $('end-dialog').addEventListener('cancel', e => { if (expired || occupied()) e.preventDefault(); });
-  $('restart').onclick = () => { screen('start'); exam = null; $('report-rows').replaceChildren(); notice(''); $('start-example').focus(); };
+  $('end-dialog').addEventListener('close', () => { if (expired && exam && !exam.ended) notice('시간 만료 — Exam Controls ▸ 시험 종료로 리포트를 보세요.'); }); // Chrome 은 Esc 로 닫은 모달을 다시 띄워 가두는 것을 막는다. 출구는 #end
+  $('restart').onclick = () => { screen('start'); exam = null; $('report-rows').replaceChildren(); notice(''); resumeUI.refresh(); $('start-example').focus(); };
   function resize(id, property, initial, min, max, sign) {
     let value = initial;
     function apply(next) { value = Math.max(min, Math.min(max, next)); $('workspace').style.setProperty(property, `${value}%`); $(id).setAttribute('aria-valuenow', Math.round(value)); }
@@ -244,5 +282,11 @@
     $(id).onkeydown = e => { if (['ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); apply(value + sign * (e.key === 'ArrowRight' ? 2 : -2)); } };
   }
   resize('split-one', '--q', 28, 18, 50, 1);
-  window.addEventListener('beforeunload', e => { if (exam && !exam.ended) { e.preventDefault(); e.returnValue = ''; } });
+  const pause = () => { if (exam && !exam.ended && eventLog) { eventLog.flushMemos(); eventLog.pause(); } };
+  const resume = () => { if (exam && !exam.ended && eventLog && !expired) { eventLog.resume(); tick(); } };
+  window.addEventListener('pagehide', pause);
+  window.addEventListener('pageshow', resume);
+  window.addEventListener('storage', e => { if (eventLog && (e.key === eventLog.key || e.key === null)) eventLog.checkOwner(); });
+  $('download-exam-log').onclick = $('download-report-log').onclick = () => eventLog?.download();
+  resumeUI.refresh();
 })();

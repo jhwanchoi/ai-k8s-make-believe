@@ -140,3 +140,8 @@ dialog::backdrop{background:#10243588}
 .answer-row td{background:#f1f4f7;padding:16px}
 .answer-row pre{background:#111820;color:#e0e9ef;padding:18px;border-radius:4px;overflow:auto;max-height:500px;font:13px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre}
 .answer-row a{font-size:12px;overflow-wrap:anywhere}
+
+.resume-card{padding:16px;margin-bottom:20px;border:1px solid #9db7ce;border-left:4px solid #3268c9;background:#f1f6fc;border-radius:4px}
+.resume-card h3{font-size:16px;margin:0 0 10px}
+.resume-card button{margin:5px 8px 0 0}
+#download-report-log{margin-bottom:14px}

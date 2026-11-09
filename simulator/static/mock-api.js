@@ -52,6 +52,7 @@ archive 네임스페이스에 데이터를 보관할 PVC와 Pod를 만드세요.
   let exam = null;
   let answerBook = null; // Private: never attach to the in-progress exam summary.
   let active = false;
+  let clock = null;
   const copy = value => JSON.parse(JSON.stringify(value));
   function questionSections(text) {
     const sections = []; let section = null, fence = null;
@@ -105,6 +106,10 @@ archive 네임스페이스에 데이터를 보관할 PVC와 Pod를 만드세요.
     active = true;
     try { await delay(); return fn(); } finally { active = false; }
   }
+  function summary() {
+    if (exam && clock) exam.ends_at = Date.now() / 1000 + clock.remaining();
+    return exam ? copy(exam) : null;
+  }
   function running() {
     if (!exam || exam.ended) throw Error('진행 중인 시험이 없습니다.');
   }
@@ -113,34 +118,43 @@ archive 네임스페이스에 데이터를 보관할 PVC와 Pod를 만드세요.
     parseFile,
     parseAnswers,
     exampleFile: () => ({name: 'mock-01.md', text: example}),
+    // Local clock bridge; real server owns pause/resume accounting.
+    bindLog: log => { clock = log; },
+    // POST /api/exam/resume {log, answers?}; replay stored output, never execute cmd.
+    resumeExam: ({log, answers = null}) => exclusive(() => {
+      const restored = window.ExamLog.replay(log);
+      if (restored.exam.ended) throw Error('종료한 시험은 이어 풀 수 없습니다.');
+      exam = copy(restored.exam); answerBook = answers ? parseAnswers(answers.text) : null; clock = null;
+      return copy(restored);
+    }),
     // GET /api/exam
-    getExam: () => exclusive(() => exam ? copy(exam) : null),
+    getExam: () => exclusive(() => summary()),
     // POST /api/exam/start {file, answers?, minutes}: answers stay private until endExam.
     startExam: ({file, answers = null, minutes}) => exclusive(() => {
       if (!Number.isInteger(minutes) || minutes < 1 || minutes > 360) throw Error('시험 시간은 1~360분 정수로 입력하세요.');
       const parsed = parseFile(file.text);
       const parsedAnswers = answers ? parseAnswers(answers.text) : null;
-      answerBook = parsedAnswers;
+      answerBook = parsedAnswers; clock = null;
       const started_at = Math.floor(Date.now() / 1000);
       parsed.problems.forEach(p => { p.visited = p.n === 1; p.meta = {submitted: false}; });
       exam = {...parsed, started_at, ends_at: started_at + minutes * 60, current: 1, ended: false};
-      return copy(exam);
+      return summary();
     }),
     // POST /api/exam/goto {n}
     gotoExam: ({n}) => exclusive(() => {
       running();
-      if (Date.now() / 1000 >= exam.ends_at) throw Error('시험 시간이 만료되었습니다.');
+      if ((clock ? clock.remaining() <= 0 : Date.now() / 1000 >= exam.ends_at)) throw Error('시험 시간이 만료되었습니다.');
       if (!Number.isInteger(n) || n < 1 || n > exam.problems.length) throw Error('문항 번호가 범위를 벗어났습니다.');
       exam.current = n;
       exam.problems[n - 1].visited = true;
-      return copy(exam);
+      return summary();
     }),
     // POST /api/submit: exam-mode grading never reveals scores or correctness.
     submit: () => exclusive(() => {
       running();
-      if (Date.now() / 1000 >= exam.ends_at) throw Error('시험 시간이 만료되었습니다.');
+      if ((clock ? clock.remaining() <= 0 : Date.now() / 1000 >= exam.ends_at)) throw Error('시험 시간이 만료되었습니다.');
       exam.problems[exam.current - 1].meta.submitted = true;
-      return {message: '제출 기록됨', exam: copy(exam)};
+      return {message: '제출 기록됨', exam: summary()};
     }),
     // POST /api/cmd {text} -> streaming markdown deltas (SSE adapter contract)
     async *cmd({text, terminal, host}) {
@@ -148,7 +162,7 @@ archive 네임스페이스에 데이터를 보관할 PVC와 Pod를 만드세요.
       active = true;
       try {
         running();
-        if (Date.now() / 1000 >= exam.ends_at) throw Error('시험 시간이 만료되었습니다.');
+        if ((clock ? clock.remaining() <= 0 : Date.now() / 1000 >= exam.ends_at)) throw Error('시험 시간이 만료되었습니다.');
         await delay();
         if (text.trim() === 'demo-error') throw Error('목업 연결이 끊겼습니다. 입력은 보존되었습니다. 다시 실행하세요.');
         const p = exam.problems[exam.current - 1];
@@ -165,6 +179,7 @@ archive 네임스페이스에 데이터를 보관할 PVC와 Pod를 만드세요.
         else if (/^ssh\s+[\w.-]+$/.test(text.trim())) { outputHost = text.trim().split(/\s+/)[1]; output = `Connected to ${outputHost} (simulated).`; }
         else if (text.trim() === 'exit') { outputHost = p.host; output = 'logout'; }
         else if (/^kubectl config use-context\s+\S+$/.test(text.trim())) { p.contexts[host] = text.trim().split(/\s+/).at(-1); output = `Switched to context "${p.contexts[host]}".`; }
+        if (!Object.hasOwn(p.contexts, outputHost)) Object.defineProperty(p.contexts, outputHost, {value: p.context, writable: true, enumerable: true, configurable: true});
         let markdown = `\`\`\`\`console\n# [SIM] host=${outputHost} ctx=${contextFor(outputHost)}\n$ ${text}\n${output}\n\`\`\`\`\n(추정) 화면 체험용 고정 응답입니다. 실제 클러스터 상태를 계산하지 않습니다.`;
         if (text.trim() === 'demo-plain') markdown = 'Simulation notice: this response contains no console block.';
         if (text.trim() === 'demo-mixed') markdown += `\n추가 안내입니다.\n\`\`\`\`console\n# [SIM] host=${outputHost} ctx=${contextFor(outputHost)}\nMock stream complete.\n\`\`\`\``;
