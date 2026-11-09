@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CKA 연습 시뮬레이터</title><link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="brand"><strong>CKA Simulator</strong><span class="badge">목업 프로토타입</span><div id="exam-menus" hidden>
+<details id="controls-menu" class="menu"><summary>Exam Controls ▾</summary><div class="menu-body"><button id="submit-question">이 문항 제출</button><button id="end" class="danger">시험 종료</button></div></details>
+<details class="menu"><summary>Exam Information ▾</summary><div class="menu-body information"><h2>시험 안내</h2><p>허용 문서: kubernetes.io/docs, kubernetes.io/blog, helm.sh/docs, gateway-api.sigs.k8s.io</p><p>kubernetes.io 검색은 되지만 외부 검색 결과는 열 수 없습니다</p><p>실제 시험은 모니터 하나만 허용됩니다. 문서 찾는 것도 본인 역할입니다.</p><p>Enter 실행 · Shift+Enter 줄바꿈 · ↑↓ 명령 이력<br>Alt+←/→ 문항 이동 · Alt+Shift+T 터미널 전환<br>패널 경계: 좌우 화살표 · 터미널 높이 경계: 위아래 화살표</p></div></details>
+</div></header>
+<div id="notice" role="status" aria-live="polite"></div>
+<main id="start" class="start screen">
+<section class="intro"><p class="eyebrow">YOUR CLUSTER LIVES IN MY HEAD</p><h1>문제에 집중하고,<br>터미널에서 연습하세요.</h1><p>문제와 가상 CLI는 한 화면에서, 공식 문서는 화면 안 Firefox에서 직접 찾습니다.<br>직접 만든 문제 파일로 나만의 모의고사를 시작합니다.</p><div class="steps"><span>01 파일 선택</span><span>02 문제 풀이</span><span>03 결과 확인</span></div></section>
+<section class="card"><h2>모의고사 시작</h2><p>모든 명령과 점수는 목업입니다. 실제 실행이나 채점은 하지 않습니다.</p><label for="file">문제 파일 (.md)</label><input id="file" type="file" accept=".md,text/markdown,text/plain"><div id="preview" class="preview"># 제목 · ## Q1 · domain: · weight: 형식<br>배점 합계는 100이어야 합니다.</div><label for="answers-file">풀이 파일 (선택, .answers.md)</label><input id="answers-file" type="file" accept=".answers.md,text/markdown,text/plain" aria-describedby="answers-preview"><div id="answers-preview" class="answers-preview" role="status" aria-live="polite">선택하지 않아도 시작할 수 있습니다. 풀이는 종료 후에만 표시됩니다.</div><label for="minutes">시험 시간 (분)</label><input id="minutes" type="number" min="1" max="360" value="90" required><div class="actions"><button id="start-file" class="primary" disabled>선택한 파일로 시작</button><button id="start-example">예시 문제로 시작</button></div><div class="start-help"><h3>문서 이용 안내</h3><p>허용 문서: kubernetes.io/docs, kubernetes.io/blog, helm.sh/docs, gateway-api.sigs.k8s.io. kubernetes.io 검색은 되지만 외부 검색 결과는 열 수 없습니다</p><p>문서 찾는 것도 본인 역할입니다.</p><p>브라우저 창은 다른 모니터로 옮기거나 옆에 붙여 쓰세요. 실제 시험은 모니터 하나만 허용됩니다.</p></div><details><summary>목업 상태 체험 방법</summary><p>CLI에 demo-error (에러), demo-plain (블록 없는 응답), demo-mixed (여러 console 블록)를 입력하세요. 1분 시험으로 시간 만료를 체험할 수 있습니다.</p></details></section>
+</main>
+<main id="exam" class="screen" hidden>
+<div id="workspace" class="workspace">
+<section class="panel question" aria-labelledby="question-heading">
+<div class="question-tools"><div id="time-progress" class="time-progress" role="progressbar" aria-label="남은 시험 시간" aria-valuemin="0" aria-valuemax="100"><div id="time-fill"></div><span id="timer" role="timer"></span></div>
+<nav class="question-nav" aria-label="문항 탐색"><button id="prev" title="이전 문항 (Alt + ←)" aria-label="이전 문항">&lt;</button><label for="jump" class="sr-only">문항 선택</label><select id="jump"></select><button id="next" title="다음 문항 (Alt + →)" aria-label="다음 문항">&gt;</button></nav></div>
+<div class="panel-body"><h2 id="question-heading">Question 1</h2><p id="metadata" class="metadata"></p><div id="problem" class="problem"></div><p id="submit-status" role="status" aria-live="polite"></p><label class="flag"><input id="flag" type="checkbox"> 나중에 보기</label><label for="notes">이 문항의 메모</label><textarea id="notes" rows="6" placeholder="조사 내용과 다시 확인할 항목을 적으세요."></textarea><small>메모와 플래그만 이 브라우저에 저장됩니다.</small></div></section>
+<div class="splitter" id="split-one" role="separator" tabindex="0" aria-label="Question 열 폭" aria-orientation="vertical" aria-valuemin="18" aria-valuemax="50" aria-valuenow="28"></div>
+<section class="desktop" aria-label="가상 데스크톱">
+<div class="taskbar"><details id="applications-menu" class="menu"><summary>Applications ▾</summary><div class="menu-body"><button id="application-terminal">Terminal</button><button id="application-firefox">Firefox</button></div></details><div id="window-buttons" aria-label="열린 터미널 창"></div><button id="firefox-task" aria-pressed="false">Firefox</button><time id="desktop-clock" aria-label="현재 시각"></time></div>
+<div id="desktop-windows" class="desktop-windows firefox-closed">
+<section class="panel cli" aria-label="터미널 창"><div class="cli-tools"><span id="command-status" role="status" aria-live="polite"></span><button id="add-terminal">+ 터미널</button></div><div id="terminal-workspace"></div><div id="key-help" class="key-help">Enter 실행 · Shift+Enter 줄바꿈 · ↑↓ 이력 · Alt+←/→ 문항 이동 · Alt+Shift+T 터미널 전환</div></section>
+<div id="split-browser" class="splitter" role="separator" tabindex="0" aria-label="터미널과 Firefox 너비 조절" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="70" aria-valuenow="50"></div>
+<section id="firefox-window" class="firefox-window" aria-labelledby="firefox-title" hidden><div class="firefox-head"><strong id="firefox-title">Firefox — 공식 문서</strong><button id="open-browser">↗ 새 창으로</button><button id="close-firefox" aria-label="Firefox 닫기">× 닫기</button></div><div class="firefox-tabs"><span>공식 문서</span></div>
+<form id="browser-form" class="browser-toolbar"><button id="browser-back" type="button" aria-label="뒤로">←</button><button id="browser-forward" type="button" aria-label="앞으로">→</button><button id="browser-reload" type="button" aria-label="새로고침">⟳</button><label for="browser-address" class="sr-only">문서 주소 (Enter로 이동)</label><input id="browser-address" type="text" value="https://kubernetes.io/docs" spellcheck="false" autocomplete="off"></form>
+<p id="browser-status" role="status" aria-live="polite">주소창은 직접 입력한 주소만 표시합니다. 문서가 안 보이면 새 창으로 여세요.</p><span id="browser-fallback" hidden>팝업이 차단되었습니다. <a id="browser-fallback-link" href="https://kubernetes.io/docs" target="cka-docs">문서 브라우저 열기 ↗</a></span>
+<iframe id="browser-frame" title="공식 문서 브라우저" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerpolicy="no-referrer"></iframe></section>
+</div></section>
+</div>
+</main>
+<main id="report" class="screen report" hidden><p class="eyebrow">EXAM REPORT · 목업 데이터</p><h1>연습을 마쳤습니다.</h1><p>고정된 예시 점수입니다. 입력한 명령이나 실제 실력을 평가한 결과가 아닙니다.</p><section class="score-card"><strong id="score"></strong><div id="result"></div><span>합격선 66% · 가중 배점 기준</span></section><h2>문항별 점수</h2><table><thead><tr><th>문항</th><th>도메인</th><th>점수 / 배점</th><th>풀이</th></tr></thead><tbody id="report-rows"></tbody></table><h2>도메인별 약점 <small>(목업)</small></h2><div id="weaknesses"></div><button id="restart" class="primary">시작 화면으로</button></main>
+<dialog id="end-dialog" aria-labelledby="end-title"><h2 id="end-title">시험을 종료할까요?</h2><p id="end-description"></p><p id="end-status" role="status" aria-live="polite"></p><div class="actions"><button id="cancel-end">계속 풀기</button><button id="confirm-end" class="danger">종료하고 리포트 보기</button></div></dialog>
+<script src="mock-api.js"></script><script src="terminal-ui.js"></script><script src="desktop-ui.js"></script><script src="app.js"></script>
+</body></html>
