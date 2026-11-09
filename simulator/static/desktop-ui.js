@@ -3,7 +3,7 @@ window.DesktopUI = class {
   constructor({terminals}) {
     this.terminals = terminals;
     this.$ = id => document.getElementById(id);
-    this.url = 'https://kubernetes.io/docs'; this.externalWindow = null; this.browserRatio = 50;
+    this.url = 'https://kubernetes.io/docs'; this.externalWindow = null; this.addresses = []; this.addressIndex = -1; this.browserRatio = 50;
     this.$('application-terminal').onclick = () => { terminals.add(); this.$('applications-menu').open = false; };
     this.$('application-firefox').onclick = this.$('firefox-task').onclick = () => this.openFirefox();
     this.$('close-firefox').onclick = () => this.closeFirefox();
@@ -12,7 +12,7 @@ window.DesktopUI = class {
     this.$('browser-back').onclick = () => this.history('back');
     this.$('browser-forward').onclick = () => this.history('forward');
     this.$('browser-reload').onclick = () => this.reload();
-    this.$('browser-frame').onload = () => { this.status('문서 로드 이벤트 수신 · 내부 링크 이동은 주소창에 반영되지 않습니다. 표시되지 않으면 새 창으로 여세요.'); };
+    this.$('browser-frame').onload = () => { this.status('문서 로드 이벤트 수신 · 뒤로/앞으로는 직접 입력한 주소 기록만 탐색합니다. 표시되지 않으면 새 창으로 여세요.'); };
     this.resizeBrowser();
     const clock = () => { const now = new Date(); this.$('desktop-clock').textContent = now.toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit', hour12: false}); this.$('desktop-clock').dateTime = now.toISOString(); };
     clock(); setInterval(clock, 1000);
@@ -46,21 +46,29 @@ window.DesktopUI = class {
   navigate(value) {
     try {
       const url = new URL(value);
-      if (!['https:', 'http:'].includes(url.protocol)) throw Error('unsupported protocol');
-      this.url = url.href; this.$('browser-address').value = this.url;
-      this.$('browser-frame').src = this.url;
-      this.$('browser-fallback-link').href = this.url;
-      this.$('firefox-title').textContent = `Firefox — ${url.hostname}`;
-      this.status('문서 로딩 중… 내부 링크의 현재 주소는 읽을 수 없습니다.');
-    } catch { this.status('http:// 또는 https://로 시작하는 올바른 주소를 입력하세요.'); }
+      if (!['https:', 'http:'].includes(url.protocol) || url.origin === location.origin) throw Error('unsafe origin or protocol');
+      this.addresses = this.addresses.slice(0, this.addressIndex + 1);
+      this.addresses.push(url.href); this.addressIndex = this.addresses.length - 1;
+      this.loadAddress();
+    } catch { this.status('시뮬레이터와 다른 출처의 http/https 주소를 입력하세요.'); }
+  }
+  loadAddress() {
+    this.url = this.addresses[this.addressIndex];
+    this.$('browser-address').value = this.url; this.$('browser-frame').src = this.url;
+    this.$('browser-fallback-link').href = this.url;
+    this.$('firefox-title').textContent = `Firefox — ${new URL(this.url).hostname}`;
+    this.$('browser-back').disabled = this.addressIndex <= 0;
+    this.$('browser-forward').disabled = this.addressIndex >= this.addresses.length - 1;
+    this.status('문서 로딩 중… 뒤로/앞으로는 직접 입력해 이동한 주소만 탐색합니다.');
   }
   history(direction) {
-    try { this.$('browser-frame').contentWindow.history[direction](); }
-    catch { this.status('교차 출처 보안으로 이 문서의 뒤로/앞으로 이동이 제한됩니다. 새 창에서 이용하세요.'); }
+    const next = this.addressIndex + (direction === 'back' ? -1 : 1);
+    if (next < 0 || next >= this.addresses.length) return;
+    this.addressIndex = next; this.loadAddress();
   }
   reload() {
-    try { this.$('browser-frame').contentWindow.location.reload(); }
-    catch { this.$('browser-frame').src = this.url; this.status('교차 출처 제한으로 주소창에 입력한 주소를 다시 불러옵니다.'); }
+    this.$('browser-frame').src = this.url;
+    this.status('주소 기록의 현재 주소를 다시 불러옵니다. 내부 링크 이동은 기록되지 않습니다.');
   }
   openExternal() {
     try {
@@ -69,7 +77,7 @@ window.DesktopUI = class {
       }
       const blocked = !this.externalWindow || this.externalWindow.closed;
       this.$('browser-fallback').hidden = !blocked;
-      if (!blocked) this.externalWindow.focus();
+      if (!blocked) { this.externalWindow.opener = null; this.externalWindow.focus(); }
     } catch { this.$('browser-fallback').hidden = false; }
   }
   resizeBrowser() {

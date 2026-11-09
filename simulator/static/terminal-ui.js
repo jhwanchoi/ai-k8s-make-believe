@@ -1,7 +1,7 @@
 /* Question × terminal UI state; a single FIFO feeds the session transport. */
 window.TerminalWorkspace = class {
-  constructor({api, container, addButton, onPending, onContext, onError, isExpired, onWindows = () => {}}) {
-    Object.assign(this, {api, container, addButton, onPending, onContext, onError, isExpired, onWindows});
+  constructor({api, container, addButton, onPending, onError, isExpired, onWindows = () => {}}) {
+    Object.assign(this, {api, container, addButton, onPending, onError, isExpired, onWindows});
     this.questions = {}; this.queue = []; this.processing = false; this.locked = false;
     addButton.onclick = () => this.add();
   }
@@ -9,16 +9,17 @@ window.TerminalWorkspace = class {
   reset() { this.questions = {}; this.queue = []; this.processing = false; }
   show(question) {
     this.question = question;
-    this.state = this.questions[question.n] ||= {context: question.context, active: 1, ratio: 50, terminals: [this.makeTerminal(1, question.host)]};
+    this.state = this.questions[question.n] ||= {contexts: Object.assign(Object.create(null), question.contexts || {[question.host]: question.context}), defaultContext: question.context, active: 1, ratio: 50, terminals: [this.makeTerminal(1, question.host)]};
     this.mount();
   }
   makeTerminal(n, host) {
-    return {n, host, originalHost: host, entries: [], history: [], draft: '', historyIndex: 0, savedDraft: '', phase: 'idle', status: '명령을 입력하세요.'};
+    return {n, host, entries: [], history: [], draft: '', historyIndex: 0, savedDraft: '', phase: 'idle', status: '명령을 입력하세요.'};
   }
   add() {
     if (this.locked || this.isExpired() || this.state.terminals.length === 2) return;
     const n = this.state.terminals[0].n === 1 ? 2 : 1;
     this.state.terminals.push(this.makeTerminal(n, this.question.host));
+    this.state.terminals.sort((a, b) => a.n - b.n);
     this.state.active = n; this.mount(); this.focus();
   }
   close(t) {
@@ -95,16 +96,24 @@ window.TerminalWorkspace = class {
   }
   splitResponse(markdown) {
     const blocks = [];
-    const note = markdown.replace(/```console[^\S\n]*\n([\s\S]*?)```/g, (_, body) => { blocks.push(body.trimEnd()); return ''; }).trim();
-    return blocks.length ? {console: blocks.join('\n\n'), note} : {console: markdown, note: ''};
+    const note = markdown.replace(/^(`{3,4})console[ \t]*\n([\s\S]*?)^\1[ \t]*(?:\n|$)/gm, (_, fence, body) => { blocks.push(body.trimEnd()); return ''; }).trim();
+    return blocks.length ? {console: blocks.join('\n\n'), note, blocks} : {console: markdown, note: '', blocks};
+  }
+  contextFor(host) { return this.state.contexts[host] ?? this.state.defaultContext; }
+  renderHeader(t) {
+    const v = t.view;
+    v.title.textContent = `Terminal - root@${t.host}: ~`; v.context.textContent = `T${t.n} · ctx=${this.contextFor(t.host)}`;
+    v.prompt.textContent = `root@${t.host}:~#`;
+  }
+  renderStatus(t) {
+    t.view.status.textContent = t.status; t.view.status.classList.toggle('busy', t.phase !== 'idle');
   }
   render(t) {
     const v = t.view, follow = v.output.scrollHeight - v.output.scrollTop - v.output.clientHeight < 70;
-    v.title.textContent = `Terminal - root@${t.host}: ~`; v.context.textContent = `T${t.n} · ctx=${this.state.context}`;
-    v.prompt.textContent = `root@${t.host}:~#`;
+    this.renderHeader(t);
     v.output.replaceChildren();
     if (!t.entries.length) {
-      const welcome = document.createElement('pre'); welcome.textContent = `# [SIM] host=${t.host} ctx=${this.state.context}\nVirtual terminal ready. No real commands are executed.`; v.output.append(welcome);
+      const welcome = document.createElement('pre'); welcome.textContent = `# [SIM] host=${t.host} ctx=${this.contextFor(t.host)}\nVirtual terminal ready. No real commands are executed.`; v.output.append(welcome);
     }
     t.entries.forEach((entry, i) => {
       const command = document.createElement('pre'); command.className = 'input-line'; command.textContent = `root@${entry.host}:~# ${entry.text}`;
@@ -113,14 +122,14 @@ window.TerminalWorkspace = class {
       if (response.note && i < t.entries.length - 1) { const note = document.createElement('div'); note.className = 'response-note'; note.textContent = response.note; v.output.append(note); }
     });
     v.note.textContent = t.entries.length ? this.splitResponse(t.entries.at(-1).response).note : '';
-    v.status.textContent = t.status; v.status.classList.toggle('busy', t.phase !== 'idle');
+    this.renderStatus(t);
     if (follow) v.output.scrollTop = v.output.scrollHeight;
   }
   enqueue(t) {
     if (this.locked || this.isExpired() || t.phase !== 'idle') return;
     const text = t.view.input.value.trim(); if (!text) return;
     t.draft = t.view.input.value; t.phase = 'queued'; t.status = '대기 중 — 앞선 터미널 응답을 기다립니다.';
-    this.queue.push({t, text}); this.render(t); this.lock(this.locked); this.onPending();
+    this.queue.push({t, text}); this.renderStatus(t); this.lock(this.locked); this.onPending();
     return this.drain();
   }
   async drain() {
@@ -129,18 +138,20 @@ window.TerminalWorkspace = class {
     try {
       while (this.queue.length) {
         const {t, text} = this.queue.shift();
-        if (this.isExpired()) { t.phase = 'idle'; t.status = '시간 만료 — 대기 명령을 전송하지 않았습니다.'; this.render(t); continue; }
-        t.phase = 'running'; t.status = 'Claude 응답 대기 중'; this.render(t);
+        if (this.isExpired()) { t.phase = 'idle'; t.status = '시간 만료 — 대기 명령을 전송하지 않았습니다.'; this.renderStatus(t); continue; }
+        t.phase = 'running'; t.status = 'Claude 응답 대기 중'; this.renderStatus(t);
         const started = Date.now();
-        const interval = setInterval(() => { t.status = `Claude 응답 대기/수신 중 · ${Math.floor((Date.now() - started) / 1000)}초 경과`; this.render(t); }, 1000);
-        const entry = {text, host: t.host, response: ''}; t.entries.push(entry); t.history.push(text); t.historyIndex = t.history.length;
+        const interval = setInterval(() => { t.status = `Claude 응답 대기/수신 중 · ${Math.floor((Date.now() - started) / 1000)}초 경과`; this.renderStatus(t); }, 1000);
+        const entry = {text, host: t.host, response: ''}; t.entries.push(entry); t.history.push(text); t.historyIndex = t.history.length; this.render(t);
         try {
           for await (const delta of this.api.cmd({text, terminal: t.n, host: t.host})) { entry.response += delta; this.render(t); }
-          const headers = [...entry.response.matchAll(/# \[SIM\] host=(\S+) ctx=(\S+)/g)];
-          if (headers.length) { t.host = headers.at(-1)[1]; this.state.context = headers.at(-1)[2]; this.onContext(this.state.context); this.onWindows(); }
+          const headers = this.splitResponse(entry.response).blocks.map(block => block.split('\n')[0].match(/^# \[SIM\] host=(\S+) ctx=(\S+)$/)).filter(Boolean);
+          if (headers.length) {
+            t.host = headers.at(-1)[1]; this.state.contexts[t.host] = headers.at(-1)[2]; this.onWindows();
+          }
           t.draft = ''; t.view.input.value = ''; t.status = '명령을 입력하세요.';
-        } catch (error) { entry.response += `\nError: ${error.message}`; t.status = '오류 — 입력을 보존했습니다. 다시 실행하세요.'; this.onError(error.message); }
-        finally { clearInterval(interval); t.phase = 'idle'; this.state.terminals.forEach(item => this.render(item)); this.lock(this.locked); }
+        } catch (error) { entry.response += `\nError: ${error.message}`; t.status = '오류 — 입력을 보존했습니다. 다시 실행하세요.'; this.onError(error.message); this.render(t); }
+        finally { clearInterval(interval); t.phase = 'idle'; this.state.terminals.forEach(item => { this.renderHeader(item); this.renderStatus(item); }); this.lock(this.locked); }
       }
     } finally { this.processing = false; this.onPending(); }
   }

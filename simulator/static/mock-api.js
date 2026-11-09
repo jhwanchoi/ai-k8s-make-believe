@@ -53,34 +53,40 @@ archive 네임스페이스에 데이터를 보관할 PVC와 Pod를 만드세요.
   let answerBook = null; // Private: never attach to the in-progress exam summary.
   let active = false;
   const copy = value => JSON.parse(JSON.stringify(value));
+  function questionSections(text) {
+    const sections = []; let section = null, fence = null;
+    for (const line of text.split('\n')) {
+      const marker = line.match(/^[ \t]{0,3}(`{3,}|~{3,})(.*)$/);
+      if (marker) {
+        if (!fence) fence = marker[1];
+        else if (marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
+      }
+      const heading = !fence && line.match(/^## Q([1-9]\d*)[ \t]*$/);
+      if (heading) { section = {n: Number(heading[1]), lines: []}; sections.push(section); }
+      else if (section) section.lines.push(line);
+    }
+    return sections;
+  }
   function parseFile(text) {
     const normalized = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
-    if (!/^#\s+\S/m.test(normalized)) throw Error('# 제목이 필요합니다.');
-    const parts = normalized.split(/^## Q(\d+)\s*$/m);
-    if (parts.length < 4) throw Error('## Q1 형식의 문항이 필요합니다.');
-    const problems = [];
-    for (let i = 1; i < parts.length; i += 2) {
-      const n = Number(parts[i]);
-      const match = parts[i + 1].match(/^\s*\n[ \t]*domain:[ \t]*([^\n]+)\n[ \t]*weight:[ \t]*(\d+(?:\.\d+)?)[ \t]*\n[ \t]*\n([\s\S]+)$/);
-      if (!match || n !== problems.length + 1) throw Error('Q 번호는 1부터 연속이어야 하며 domain, weight, 빈 줄, 원문 순서여야 합니다.');
+    const title = normalized.match(/^#[ \t]+(\S[^\n]*)$/m);
+    if (!title) throw Error('# 제목이 필요합니다.');
+    const sections = questionSections(normalized);
+    if (!sections.length) throw Error('## Q1 형식의 문항이 필요합니다.');
+    const problems = sections.map(({n, lines}, i) => {
+      const match = lines.join('\n').match(/^\s*[ \t]*domain:[ \t]*([^\n]+)\n[ \t]*weight:[ \t]*([1-9]\d*)[ \t]*\n[ \t]*\n([\s\S]+)$/);
+      if (!match || n !== i + 1) throw Error('Q 번호는 1부터 연속이어야 하며 domain, 양의 정수 weight, 빈 줄, 원문 순서여야 합니다.');
       const weight = Number(match[2]);
-      if (weight <= 0 || !match[3].trim()) throw Error('양수 배점과 문제 원문이 필요합니다.');
-      problems.push({n, domain: match[1].trim(), weight, text: match[3].trim(), id: `mock-q${n}`, host: 'controlplane', context: 'k8s-c1'});
-    }
-    if (Math.abs(problems.reduce((s, p) => s + p.weight, 0) - 100) > .001) throw Error('문항 배점의 합은 100이어야 합니다.');
-    return {title: normalized.match(/^#\s+(.+)$/m)[1], problems};
+      if (!Number.isSafeInteger(weight) || !match[3].trim()) throw Error('양의 정수 배점과 문제 원문이 필요합니다.');
+      return {n, domain: match[1].trim(), weight, text: match[3].trim(), id: `mock-q${n}`, host: 'controlplane', context: 'k8s-c1', contexts: {controlplane: 'k8s-c1'}};
+    });
+    if (problems.reduce((sum, p) => sum + p.weight, 0) !== 100) throw Error('문항 배점의 합은 100이어야 합니다.');
+    return {title: title[1], problems};
   }
   function parseAnswers(text) {
     const normalized = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
     if (!/^# +\S/m.test(normalized)) throw Error('풀이 파일에 # 제목이 필요합니다.');
-    const sections = []; let section = null, inBash = false;
-    for (const line of normalized.split('\n')) {
-      if (/^```bash[ \t]*$/.test(line) && !inBash) inBash = true;
-      else if (/^```[ \t]*$/.test(line) && inBash) inBash = false;
-      const heading = !inBash && line.match(/^## Q([1-9]\d*)[ \t]*$/);
-      if (heading) { section = {n: Number(heading[1]), lines: []}; sections.push(section); }
-      else if (section) section.lines.push(line);
-    }
+    const sections = questionSections(normalized);
     if (!sections.length) throw Error('풀이 파일에 ## Q1 형식의 문항이 필요합니다.');
     const seen = new Set();
     return sections.map(({n, lines}) => {
@@ -148,18 +154,20 @@ archive 네임스페이스에 데이터를 보관할 PVC와 Pod를 만드세요.
         const p = exam.problems[exam.current - 1];
         if (![1, 2].includes(terminal) || !/^[\w.-]+$/.test(host || '')) throw Error('터미널 번호와 host가 필요합니다.');
         let outputHost = host;
+        const contextFor = target => Object.hasOwn(p.contexts, target) ? p.contexts[target] : p.context;
+        if (!Object.hasOwn(p.contexts, host)) Object.defineProperty(p.contexts, host, {value: p.context, writable: true, enumerable: true, configurable: true});
         let output = 'Mock command accepted. No real command was executed.';
         if (/get (po|pods)/.test(text)) output = `NAME                     READY   STATUS             RESTARTS   AGE\nledger-7b9c6d-xp2mn      0/1     CrashLoopBackOff   3          4m`;
         else if (/get (node|nodes)/.test(text)) output = 'NAME           STATUS   ROLES           AGE   VERSION\ncontrolplane   Ready    control-plane   2d    v1.34.1\nworker01       Ready    <none>          2d    v1.34.1';
         else if (/get (pvc|pv)/.test(text)) output = 'No resources found in archive namespace.';
         else if (/get (svc|service)/.test(text)) output = 'NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE\nkubernetes   ClusterIP   10.96.0.1    <none>        443/TCP   2d';
-        else if (/config current-context/.test(text)) output = p.context;
+        else if (/config current-context/.test(text)) output = contextFor(host);
         else if (/^ssh\s+[\w.-]+$/.test(text.trim())) { outputHost = text.trim().split(/\s+/)[1]; output = `Connected to ${outputHost} (simulated).`; }
         else if (text.trim() === 'exit') { outputHost = p.host; output = 'logout'; }
-        else if (/^kubectl config use-context\s+\S+$/.test(text.trim())) { p.context = text.trim().split(/\s+/).at(-1); output = `Switched to context "${p.context}".`; }
-        let markdown = `\`\`\`console\n# [SIM] host=${outputHost} ctx=${p.context}\n$ ${text}\n${output}\n\`\`\`\n(추정) 화면 체험용 고정 응답입니다. 실제 클러스터 상태를 계산하지 않습니다.`;
+        else if (/^kubectl config use-context\s+\S+$/.test(text.trim())) { p.contexts[host] = text.trim().split(/\s+/).at(-1); output = `Switched to context "${p.contexts[host]}".`; }
+        let markdown = `\`\`\`\`console\n# [SIM] host=${outputHost} ctx=${contextFor(outputHost)}\n$ ${text}\n${output}\n\`\`\`\`\n(추정) 화면 체험용 고정 응답입니다. 실제 클러스터 상태를 계산하지 않습니다.`;
         if (text.trim() === 'demo-plain') markdown = 'Simulation notice: this response contains no console block.';
-        if (text.trim() === 'demo-mixed') markdown += `\n추가 안내입니다.\n\`\`\`console\n# [SIM] host=${outputHost} ctx=${p.context}\nMock stream complete.\n\`\`\``;
+        if (text.trim() === 'demo-mixed') markdown += `\n추가 안내입니다.\n\`\`\`\`console\n# [SIM] host=${outputHost} ctx=${contextFor(outputHost)}\nMock stream complete.\n\`\`\`\``;
         for (let i = 0; i < markdown.length; i += 28) { await wait(45); yield markdown.slice(i, i + 28); }
       } finally { active = false; }
     },

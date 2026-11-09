@@ -5,6 +5,7 @@
   const api = window.MockAPI;
   let exam, selectedFile, selectedAnswers = null, answerCount = 0, readingAnswers = false, busy = false, expired = false, timer;
   let preferences = {}, storageKey = '';
+  let fileToken = 0, answersToken = 0;
   let elapsedInterval, waitStarted;
   const notice = text => { $('notice').textContent = text; };
   function screen(id) {
@@ -16,7 +17,7 @@
   const terminals = new window.TerminalWorkspace({
     api, container: $('terminal-workspace'), addButton: $('add-terminal'),
     onPending: () => { setBusy(busy); tick(); if (expired) $('confirm-end').disabled = busy || terminals.pending; },
-    onContext: context => { current().context = context; }, onError: notice,
+    onError: notice,
     isExpired: () => expired
   });
   const desktop = new window.DesktopUI({terminals});
@@ -69,7 +70,7 @@
     try {
       exam = await api.startExam({file, answers, minutes: Number($('minutes').value)});
       terminals.reset(); desktop.closeFirefox(); expired = false; preferences = {};
-      storageKey = `k12s-notes:${file.text}`;
+      storageKey = notesKey(file.text, exam.problems.length);
       try { const data = JSON.parse(localStorage.getItem(storageKey) || '{}'); if (data && typeof data === 'object') preferences = data; }
       catch { notice('저장된 메모를 불러올 수 없습니다.'); }
       $('jump').replaceChildren(...exam.problems.map(p => new Option(`Q${p.n}`, p.n)));
@@ -158,6 +159,11 @@
       button.setAttribute('aria-expanded', !detail.hidden); button.textContent = detail.hidden ? '풀이 보기' : '풀이 닫기';
     };
   }
+  function notesKey(text, count) {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
+    return `k12s-notes:${hash.toString(16).padStart(8, '0')}:${count}`;
+  }
   function previewAnswers() {
     if (!selectedAnswers) return;
     let count;
@@ -167,17 +173,19 @@
     $('answers-preview').classList.toggle('warning', count !== undefined && count !== answerCount);
   }
   $('answers-file').onchange = async () => {
+    const token = ++answersToken;
     const file = $('answers-file').files[0]; selectedAnswers = null; answerCount = 0;
     $('answers-preview').classList.remove('warning');
+    readingAnswers = false;
     if (!file) { $('answers-preview').textContent = '선택하지 않아도 시작할 수 있습니다. 풀이는 종료 후에만 표시됩니다.'; return; }
     readingAnswers = true; $('answers-preview').textContent = '풀이 파일 형식을 확인하고 있습니다…';
     try {
       if (file.size > 1024 * 1024) throw Error('풀이 파일은 1MiB 이하로 선택하세요.');
       const text = await file.text();
-      if ($('answers-file').files[0] !== file) return;
+      if (token !== answersToken) return;
       answerCount = api.parseAnswers(text).length; selectedAnswers = {name: file.name, text}; previewAnswers();
-    } catch (error) { $('answers-preview').textContent = `${error.message} 풀이 없이 시작할 수 있습니다.`; }
-    finally { readingAnswers = false; }
+    } catch (error) { if (token !== answersToken) return; $('answers-preview').textContent = `${error.message} 풀이 없이 시작할 수 있습니다.`; }
+    finally { if (token === answersToken) readingAnswers = false; }
   };
   async function submitQuestion() {
     tick();
@@ -197,15 +205,18 @@
   }
   $('submit-question').onclick = () => { $('controls-menu').open = false; return submitQuestion(); };
   $('file').onchange = async () => {
+    const token = ++fileToken;
     const file = $('file').files[0]; selectedFile = null; $('start-file').disabled = true;
     if (!file) { previewAnswers(); return; }
     try {
       if (file.size > 1024 * 1024) throw Error('문제 파일은 1MiB 이하로 선택하세요.');
-      const text = await file.text(); const parsed = api.parseFile(text);
+      const text = await file.text();
+      if (token !== fileToken) return;
+      const parsed = api.parseFile(text);
       selectedFile = {name: file.name, text};
       $('preview').textContent = `${parsed.title}\n${parsed.problems.length}문항 · 총 배점 100%\n` + parsed.problems.map(p => `Q${p.n} · ${p.domain} · ${p.weight}%`).join('\n');
       $('start-file').disabled = false; notice('문제 파일을 확인했습니다.'); previewAnswers();
-    } catch (error) { $('preview').textContent = error.message; notice(error.message); previewAnswers(); }
+    } catch (error) { if (token !== fileToken) return; $('preview').textContent = error.message; notice(error.message); previewAnswers(); }
   };
   $('start-file').onclick = () => { if (readingAnswers) { notice('풀이 파일 확인이 끝난 뒤 시작하세요.'); return; } return start(selectedFile, selectedAnswers); };
   $('start-example').onclick = () => start(api.exampleFile());
@@ -215,6 +226,7 @@
   document.addEventListener('keydown', e => {
     if (e.altKey && e.shiftKey && e.code === 'KeyT' && !$('exam').hidden && !$('end-dialog').open) { e.preventDefault(); terminals.switchTerminal(); return; }
     if (!e.altKey || !['ArrowLeft', 'ArrowRight'].includes(e.key) || $('exam').hidden || $('end-dialog').open) return;
+    if (['TEXTAREA', 'INPUT', 'SELECT'].includes(e.target?.tagName)) return;
     e.preventDefault(); goto(exam.current + (e.key === 'ArrowRight' ? 1 : -1));
   });
   $('end').onclick = () => { $('controls-menu').open = false; showEnd(); }; $('cancel-end').onclick = () => { $('end-dialog').close(); $('end').focus(); };
