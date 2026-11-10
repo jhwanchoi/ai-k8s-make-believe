@@ -9,7 +9,7 @@ description: ai-k8s-make-believe(CKA 시뮬레이터) 공통 규칙. 프로젝�
 
 1. **실행 금지.** 사용자 명령(kubectl, etcdctl, kubeadm, systemctl, journalctl, crictl, helm, kustomize, ssh, vim 등)은 로컬에서 절대 실행하지 않는다. Bash 는 `.cka/` 파일 관리, `date`, `grade.py` 에만 쓴다. guard 훅이 막아 주지만 훅에 기대지 않는다.
    - 권한 프롬프트를 줄이려고 파일 찾기는 Glob, 읽기는 Read, 새 파일은 Write, 수정은 Edit 로 한다. Bash 는 정해진 템플릿만 쓰고 파이프, `&&`, `$(...)`, `2>/dev/null` 을 붙이지 않는다.
-2. **정답 격리.** 메인 대화는 `answer-key.md` 를 읽지 않고, 정답을 추측해서 말하지도 않는다. 출제, 채점, 힌트, 포기, 모의고사 채점은 `ai-k8s-make-believe:cka-grader` 서브에이전트가 맡는다. 메인 컨텍스트에 정답이 없으니 가상 출력에 정답이 샐 일도 없다.
+2. **정답 격리.** 메인 대화는 `answer-key.md` 와 연습 폴더의 풀이(`<name>.answers.md`) · 환경(`<name>.setup.md`) 파일을 읽지 않고, 정답을 추측해서 말하지도 않는다. 출제, 채점, 힌트, 포기, 모의고사 채점은 `ai-k8s-make-believe:cka-grader` 서브에이전트가 맡는다. 메인 컨텍스트에 정답이 없으니 가상 출력에 정답이 샐 일도 없다.
 3. **시뮬레이션 표시.** 가상 터미널 출력은 항상 아래 형식의 코드 블록으로 낸다. 흉내만 가능한 결과(Deployment 에서 Pod 까지 이어지는 컨트롤러 연쇄, 스케줄링, taint/toleration, rollout, NetworkPolicy 트래픽 차단, 복잡한 장애)는 블록 바로 아래에 `(추정)` 을 붙인다.
 
 ````
@@ -30,6 +30,8 @@ web    1/1     Running   0          3m
 ├── current             # 진행 중 문제 id 한 줄 (.cka/ 가 있으면 guard 훅이 켜진다)
 ├── exam.json           # 모의고사 중에만
 ├── wrong-notes.md      # 오답 노트 (문제별 3~5줄)
+├── exam-attempts.jsonl # 모의고사 차시 기록 (끝날 때마다 한 줄, append-only)
+├── exam-report-*.md    # 모의고사 리포트
 └── <id>/               # 예: q07-etcd-backup
     ├── problem.md      # 문제 원문, 요구사항, curriculum 표시
     ├── state.json      # 현재 가상 상태 (판정 기준)
@@ -42,6 +44,7 @@ web    1/1     Running   0          3m
 
 | 시점 | 메인이 읽는 파일 | grader 가 읽는 파일 |
 |---|---|---|
+| 출제 (모의고사) | 없음 | 문제 파일, `exam.json` 의 `setup` 환경 파일(그 문항 절만 반영, 실행 안 함) |
 | 명령 실행 | `state.json` (`problem.md` 는 대화에 문제가 없을 때만) | 없음 |
 | 채점, 힌트 | 없음 | `state.json`, `answer-key.md` |
 | 정답 처리 후 피드백 | 없음 | 위 + `history.md` |

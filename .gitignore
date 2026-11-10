@@ -11,3 +11,8 @@ __pycache__/
 
 # 비공개 검증 데이터는 저장소 밖에 둔다. 실수로 만들어도 올라가지 않게
 evals.local/
+
+# cka-import 가 만드는 문제 · 풀이 · 환경 파일. 원작자 권리가 있어 올리지 않는다
+exams/
+*.answers.md
+*.setup.md

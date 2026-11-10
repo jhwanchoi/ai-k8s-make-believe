@@ -64,7 +64,7 @@ Claude Code는 플러그인 커맨드를 `/플러그인이름:커맨드` 형태�
 | `/ai-k8s-make-believe:cka-hint` | 다음 단계 힌트를 받습니다 (방향, 위치, 정답 공개 순) |
 | `/ai-k8s-make-believe:cka-giveup` | 정답과 해설을 보고 문제를 정리합니다 |
 | `/ai-k8s-make-believe:cka-reset` | 가상 환경을 처음 상태로 되돌립니다. 시도와 힌트 횟수는 그대로입니다 |
-| `/ai-k8s-make-believe:cka-exam start \| next \| prev \| goto N \| status \| end` | 2시간 모의고사입니다. 힌트 없이 풀고 끝나면 한꺼번에 채점합니다 |
+| `/ai-k8s-make-believe:cka-exam start \| next \| prev \| goto N \| status \| end` | 2시간 모의고사입니다. 힌트 없이 풀고 끝나면 한꺼번에 채점합니다. 같은 문제 파일로 다시 보면 `exam-attempts.jsonl` 에 1차시 · 2차시 … 로 쌓입니다 |
 
 | 내부 구성 | 역할 |
 |---|---|
@@ -72,6 +72,8 @@ Claude Code는 플러그인 커맨드를 `/플러그인이름:커맨드` 형태�
 | `cka-grader` agent | 출제, 채점, 힌트, 모의고사 리포트. 정답을 읽는 유일한 주체 |
 | `scripts/grade.py` | 루브릭 항목을 상태 파일과 결정적으로 비교 |
 | `scripts/guard.py` | 연습 디렉터리에서 실제 `kubectl` 같은 명령 실행을 막는 훅 |
+| `cka-import` skill | GitHub 문제 저장소 링크를 받아 연습 폴더에 문제(`<name>.md`) · 풀이(`<name>.answers.md`) · 환경(`<name>.setup.md`) 파일을 만듦 |
+| `scripts/import_cka_prep.py` | CKA-PREP 형식 저장소를 위 두 파일로 바꾸고 형식을 검사(`--check`) |
 
 ```mermaid
 flowchart LR
@@ -83,6 +85,18 @@ flowchart LR
   G -- "grade.py 채점" --> F
   K{{guard 훅}} -. "실제 실행 차단" .-> M
 ```
+
+## 문제 저장소 가져오기
+
+공개 연습문제 저장소 링크를 주면 연습 폴더(기본 `./exams/`)에 문제 · 풀이 · 환경 파일을 만듭니다. 파일은 각자 로컬에만 두고 이 저장소에는 올리지 않습니다.
+
+```
+이 링크로 문제/답 md 만들어 줘: https://github.com/<owner>/<repo>
+```
+
+- `Question-<n> <주제>/Questions.bash`, `SolutionNotes.bash` 형식(CKA-PREP)은 스크립트가 바로 바꿉니다. 다른 형식은 Claude가 읽고 같은 양식으로 쓴 뒤 `--check`로 검사합니다.
+- 풀이 파일은 시험이 끝난 뒤에만 엽니다. 환경 파일(원본 `LabSetUp.bash`)은 grader가 가상 초기 상태를 만들 때만 읽습니다.
+- 원본에 실제 시험을 옮긴 흔적이 보이면 경고합니다. 덤프는 CNCF 응시 약관 위반입니다.
 
 ## 동작 방식
 
@@ -96,6 +110,7 @@ flowchart LR
 .cka/
 ├── current             # 풀고 있는 문제 id
 ├── wrong-notes.md      # 오답 노트
+├── exam-attempts.jsonl # 모의고사 차시 기록 (같은 시험을 다시 보면 1차시 · 2차시 …)
 └── q07-etcd-backup/
     ├── problem.md
     ├── state.json      # 가상 상태 (채점 기준)
