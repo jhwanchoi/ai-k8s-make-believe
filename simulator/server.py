@@ -34,6 +34,9 @@ HEADLESS = ("이 세션은 ai-k8s-make-believe 웹 시뮬레이터 서버가 hea
             "AskUserQuestion 을 쓰지 않는다. 검토(reviewer)에서 이상이 나오면 '무시'를 고른 것으로 진행하고, "
             "검토 결과는 반환값(모의고사면 리포트)에 남긴다.")
 EXAM_NAME = re.compile(r"[\w.-]+\.md")
+CMD_PROMPT = REPO / "simulator" / "cmd-prompt.md"
+KUBECTL_REFS = REPO / "skills" / "cka-rules" / "references" / "kubectl"
+CHANGE_ROOTS = ("clusters", "hosts", "meta")
 TIMEOUT = {"cmd": 600, "start": 1200, "goto": 900, "submit": 600, "end": 1800}
 
 
@@ -101,6 +104,163 @@ def parse_stream(lines):
     return session, result
 
 
+# ---------- 웹 명령: 입력 한 번, 출력 한 번 ----------
+
+class OutputStream:
+    """모델 텍스트 조각에서 <output> … </output> 안쪽만 흘려보낸다. 태그가 조각 사이에서 잘려도 된다."""
+    OPEN, CLOSE = "<output>", "</output>"
+
+    def __init__(self):
+        self.buf, self.state, self.started = "", "before", False
+
+    def feed(self, chunk):
+        self.buf += chunk
+        out = ""
+        if self.state == "before":
+            i = self.buf.find(self.OPEN)
+            if i < 0:
+                self.buf = self.buf[-(len(self.OPEN) - 1):]
+                return ""
+            self.buf, self.state = self.buf[i + len(self.OPEN):], "in"
+        if self.state == "in":
+            i = self.buf.find(self.CLOSE)
+            if i >= 0:
+                out, self.buf, self.state = self.buf[:i], "", "after"
+            else:  # 닫는 태그의 앞부분일 수 있는 꼬리는 남겨 둔다
+                keep = next((k for k in range(min(len(self.CLOSE) - 1, len(self.buf)), 0, -1)
+                             if self.CLOSE.startswith(self.buf[-k:])), 0)
+                out, self.buf = self.buf[:len(self.buf) - keep], self.buf[len(self.buf) - keep:]
+        if not self.started and out:
+            out = out.lstrip("\n")  # <output> 바로 뒤 줄바꿈
+            self.started = bool(out)
+        return out
+
+
+def parse_reply(text):
+    """최종 응답 -> (출력, changes 리스트 | None, 문제 설명). changes 가 없거나 깨지면 None."""
+    m = re.search(r"<output>\n?(.*?)</output>", text, re.S)
+    output = m[1].rstrip("\n") if m else re.sub(r"<changes>.*?</changes>", "", text, flags=re.S).strip()
+    c = re.search(r"<changes>(.*?)</changes>", text, re.S)
+    if not c:
+        return output, None, "changes 태그 없음"
+    try:
+        changes = json.loads(c[1].strip() or "[]")
+    except json.JSONDecodeError as e:
+        return output, None, f"changes JSON 오류: {e.msg}"
+    return output, changes, ""
+
+
+def fmt_path(path):
+    out = ""
+    for k in path:
+        out += f"[{k}]" if isinstance(k, int) else (f'["{k}"]' if "/" in k or "." in k else ("." if out else "") + k)
+    return out
+
+
+def apply_changes(state, changes):
+    """changes 를 검증해 새 state 와 history 의 '변경:' 줄을 돌려준다. 하나라도 잘못되면 ValueError (아무것도 적용 안 함)."""
+    if not isinstance(changes, list):
+        raise ValueError("changes 는 배열이어야 합니다")
+    new, lines = json.loads(json.dumps(state)), []
+    for c in changes:
+        op, path = (c.get("op"), c.get("path")) if isinstance(c, dict) else (None, None)
+        if op not in ("set", "delete") or not isinstance(path, list) or not path or path[0] not in CHANGE_ROOTS \
+                or any(isinstance(k, bool) or not isinstance(k, (str, int)) for k in path):
+            raise ValueError(f"잘못된 변경: {json.dumps(c, ensure_ascii=False)[:120]}")
+        if path == ["meta", "cmd_count"]:
+            continue  # 서버가 센다
+        if op == "set" and "value" not in c:
+            raise ValueError(f"set 에 value 가 없습니다: {fmt_path(path)}")
+        cur = new
+        for k in path[:-1]:
+            if isinstance(cur, dict) and isinstance(k, str):
+                if k not in cur or not isinstance(cur[k], (dict, list)):
+                    if op == "delete":
+                        cur = None
+                        break
+                    cur[k] = {}
+                cur = cur[k]
+            elif isinstance(cur, list) and isinstance(k, int) and -len(cur) <= k < len(cur):
+                cur = cur[k]
+            elif op == "delete":
+                cur = None
+                break
+            else:
+                raise ValueError(f"경로를 따라갈 수 없습니다: {fmt_path(path)}")
+        last = path[-1]
+        if op == "set":
+            if isinstance(cur, dict) and isinstance(last, str):
+                cur[last] = c["value"]
+            elif isinstance(cur, list) and isinstance(last, int) and -len(cur) <= last <= len(cur):
+                cur[last:last + 1 if last < len(cur) else last] = [c["value"]]
+            else:
+                raise ValueError(f"경로에 값을 넣을 수 없습니다: {fmt_path(path)}")
+            lines.append(f"변경: {fmt_path(path)} = {json.dumps(c['value'], ensure_ascii=False)[:100]}")
+        else:
+            if isinstance(cur, dict) and isinstance(last, str):
+                cur.pop(last, None)
+            elif isinstance(cur, list) and isinstance(last, int) and -len(cur) <= last < len(cur):
+                del cur[last]
+            lines.append(f"변경: {fmt_path(path)} 삭제")
+    return new, lines
+
+
+def kubectl_refs(text):
+    """명령에 나온 kubectl 마다 레퍼런스 파일 하나(없으면 상위 명령). 이름 -> 내용."""
+    refs = {}
+    for line in text.split("\n")[:1]:
+        words = re.findall(r"[^\s|;&]+|[|;&]+", line)
+        for i, w in enumerate(words):
+            if w not in ("kubectl", "k"):
+                continue
+            path, best, skip = [], "kubectl.md", False
+            for a in words[i + 1:]:
+                if re.fullmatch(r"[|;&]+", a):
+                    break
+                if skip or a.startswith("-"):  # 플래그와, 값을 받는 전역 플래그의 값(kubectl -n dev get)
+                    skip = not skip and a in ("-n", "--namespace", "--context", "--kubeconfig", "--cluster", "--user")
+                    continue
+                name = "kubectl_" + "_".join(path + [a]) + ".md"
+                if not (KUBECTL_REFS / name).exists():
+                    break
+                path.append(a)
+                best = name
+            if best:
+                refs[best] = (KUBECTL_REFS / best).read_text()
+    return refs
+
+
+def recent_history(path, n=15):
+    try:
+        text = path.read_text()
+    except OSError:
+        return ""
+    entries = [e for e in re.split(r"(?m)^(?=### #)", text) if e.startswith("### #")]
+    return "".join(entries[-n:]).strip()
+
+
+def build_cmd_input(cka, pid, state, terminal, host, text):
+    """한 번 호출에 넣을 사용자 메시지. answer-key, 풀이, 환경 파일은 읽지 않는다."""
+    d = cka / pid
+    parts = [f"## 문제\n{(d / 'problem.md').read_text()}",
+             f"## 현재 state.json\n{json.dumps(state, ensure_ascii=False)}",
+             f"## 최근 명령 기록\n{recent_history(d / 'history.md') or '(없음)'}"]
+    for name, body in kubectl_refs(text).items():
+        parts.append(f"## kubectl 레퍼런스 {name}\n{body}")
+    started = time.gmtime((d / "state.init.json").stat().st_mtime) if (d / "state.init.json").exists() else time.gmtime()
+    parts.append(f"## 시각\n현재 시각: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n"
+                 f"문제 시작 시각: {time.strftime('%Y-%m-%dT%H:%M:%SZ', started)}")
+    parts.append(f"## 실행할 명령\n# terminal={terminal} host={host}\n{text}")
+    return "\n\n".join(parts)
+
+
+def history_entry(n, text, output, change_lines):
+    shown = [line for line in output.split("\n") if line.strip()][:3]
+    body = "\n".join(f"> {line}" for line in shown) or "> (출력 없음)"
+    return (f"### #{n}  {time.strftime('%Y-%m-%d %H:%M')}\n$ {text}\n{body}\n"
+            + ("\n".join(change_lines) if change_lines else "변경: 없음") + "\n")
+
+
 class Claude:
     def __init__(self, practice, model):
         self.practice, self.model = Path(practice), model
@@ -112,6 +272,42 @@ class Claude:
             return json.loads(self.session_file.read_text())["session_id"]
         except (OSError, ValueError, KeyError):
             return None
+
+    def ask(self, prompt, on_text):
+        """웹 명령 한 번: 도구 없음, 세션 저장 없음, 기본 시스템 프롬프트 대신 cmd-prompt.md.
+        모델 텍스트 조각마다 on_text 를 부르고 (최종 텍스트, 비용, 초) 를 돌려준다."""
+        args = ["claude", "-p", "--model", self.model, "--setting-sources", "project,local", "--no-session-persistence",
+                "--tools", "", "--system-prompt", CMD_PROMPT.read_text(),
+                "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
+        started = time.time()
+        errors = tempfile.TemporaryFile(mode="w+")
+        proc = subprocess.Popen(args, cwd=self.practice, env={**os.environ, "KUBECONFIG": "/dev/null"},
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, text=True)
+        timer = threading.Timer(TIMEOUT["cmd"], proc.kill)
+        timer.start()
+        result = None
+        try:
+            proc.stdin.write(prompt)
+            proc.stdin.close()
+            for line in proc.stdout:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                delta = (event.get("event") or {}).get("delta") or {} if event.get("type") == "stream_event" else {}
+                if delta.get("type") == "text_delta":
+                    on_text(delta.get("text", ""))
+                elif event.get("type") == "result":
+                    result = event
+            proc.wait()
+        finally:
+            timer.cancel()
+        seconds = round(time.time() - started, 1)
+        if not result or result.get("is_error") or proc.returncode:
+            errors.seek(0)
+            detail = (result or {}).get("result") or errors.read()[-300:] or "응답이 없습니다"
+            raise RuntimeError(f"Claude 실행 실패 (cmd): {detail.strip()}")
+        return result.get("result") or "", result.get("total_cost_usd"), seconds
 
     def forget(self):
         self.session_file.unlink(missing_ok=True)
@@ -391,33 +587,77 @@ def make_handler(practice, claude, exams, port):
             self._json(200, exams.report())
 
         def cmd(self, body):
-            self._running()
-            text, terminal, host = body.get("text"), body.get("terminal"), body.get("host")
+            """명령 하나: Claude 한 번(도구 없음)으로 <output> 을 흘리고, 끝나면 <changes> 를 코드로 state.json 에 적용한다.
+            local_output 이 오면(브라우저 command-check 가 잡은 오타) Claude 없이 기록만 한다."""
+            meta = self._running()
+            if time.time() >= (meta.get("ends_at") or float("inf")):
+                raise ValueError("시험 시간이 끝났습니다. 시험을 종료하세요.")
+            text, terminal, host, local = body.get("text"), body.get("terminal"), body.get("host"), body.get("local_output")
             if not isinstance(text, str) or not text.strip() or terminal not in (1, 2) \
                     or not isinstance(host, str) or not re.fullmatch(r"[\w.-]+", host):
                 raise ValueError("명령, 터미널 번호, host 가 필요합니다.")
+            if local is not None and (not isinstance(local, str) or len(local) > 4000):
+                raise ValueError("local_output 형식이 잘못됐습니다.")
+            cka = practice / ".cka"
+            pid = (cka / "current").read_text().strip() if (cka / "current").exists() else ""
+            if not pid or "/" in pid or not (cka / pid / "state.json").exists():
+                raise ValueError("진행 중인 문제가 없습니다.")
+            state_path = cka / pid / "state.json"
+            state = json.loads(state_path.read_text())
+            state.setdefault("meta", {})["host"] = host  # 터미널마다 host 가 다를 수 있다
+            ctx = state["meta"].get("context", "k8s-c1")
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
-            last = [time.time()]
 
-            def keepalive():  # 응답이 길어도 연결이 살아 있게 15초마다 주석 줄. 브라우저가 끊어도 Claude 는 끝까지 돈다
-                if time.time() - last[0] > 15:
-                    last[0] = time.time()
+            def send(data, event=None):  # 브라우저가 끊어도 상태 적용과 기록은 끝까지 한다
+                try:
+                    payload = json.dumps(data, ensure_ascii=False)
+                    self.wfile.write((f"event: {event}\n" if event else "").encode() + f"data: {payload}\n\n".encode())
+                    self.wfile.flush()
+                except OSError:
+                    pass
+            # 화면용 머리줄과 명령 반복은 terminal-ui 가 숨긴다. host 추적은 마지막 머리줄을 쓴다.
+            send(f"````console\n# [SIM] host={host} ctx={ctx}\n$ {text}\n")
+            lines, warn, cost, seconds = [], "", 0, 0
+            if local is not None:
+                output = local
+                send(output)
+            else:
+                stream = OutputStream()
+
+                def on_text(chunk):
+                    piece = stream.feed(chunk)
+                    if piece:
+                        send(piece)
+                try:
+                    reply, cost, seconds = claude.ask(build_cmd_input(cka, pid, state, terminal, host, text), on_text)
+                except RuntimeError as e:
+                    send({"message": str(e)}, "error")
+                    return
+                output, changes, warn = parse_reply(reply)
+                if not stream.started and output:
+                    send(output)  # 태그 없이 답한 경우
+                if changes is not None:
                     try:
-                        self.wfile.write(b": working\n\n")
-                        self.wfile.flush()
-                    except OSError:
-                        pass
-            try:
-                out = claude.run("cmd", f"{PLUGIN}cka # terminal={terminal} host={host}\n{text}", keepalive)
-                for i in range(0, len(out), 200):
-                    self.wfile.write(f"data: {json.dumps(out[i:i + 200], ensure_ascii=False)}\n\n".encode())
-                self.wfile.write(b"event: done\ndata: {}\n\n")
-            except (RuntimeError, OSError) as e:
-                self.wfile.write(f"event: error\ndata: {json.dumps({'message': str(e)}, ensure_ascii=False)}\n\n".encode())
-            self.wfile.flush()
+                        state, lines = apply_changes(state, changes)
+                    except ValueError as e:
+                        warn = str(e)
+            state["meta"]["cmd_count"] = int(state["meta"].get("cmd_count") or 0) + 1
+            tmp = state_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1))
+            os.replace(tmp, state_path)
+            if warn:
+                lines = [f"변경: 적용 안 함 ({warn})"]
+            with open(cka / pid / "history.md", "a") as hist:
+                hist.write(history_entry(state["meta"]["cmd_count"], text, output, lines))
+            with open(cka / "server-log.jsonl", "a") as log:
+                log.write(json.dumps({"at": int(time.time()), "kind": "cmd-local" if local is not None else "cmd",
+                                      "seconds": seconds, "cost_usd": cost, "warning": warn}, ensure_ascii=False) + "\n")
+            m = state["meta"]
+            send(f"\n````\n````console\n# [SIM] host={m.get('host', host)} ctx={m.get('context', ctx)}\n````\n")
+            send({}, "done")
 
     return Handler
 
@@ -486,6 +726,54 @@ def _selftest():
         raise AssertionError("weights must sum to 100")
     except ValueError:
         pass
+    # <output> 스트리밍: 태그가 조각 사이에서 잘려도 안쪽만, 한 번씩
+    reply = "생각 <outp" + "ut>\nNAME   STATUS\nweb    Running</ou" + "tput>\n<changes>[]</changes>"
+    for size in (1, 2, 3, 7, len(reply)):
+        s = OutputStream()
+        got = "".join(s.feed(reply[i:i + size]) for i in range(0, len(reply), size))
+        assert got == "NAME   STATUS\nweb    Running", (size, got)
+    assert OutputStream().feed("no tags at all") == ""
+    assert parse_reply(reply) == ("NAME   STATUS\nweb    Running", [], "")
+    assert parse_reply("<output>x</output>")[1] is None
+    assert parse_reply("<output>x</output><changes>[oops</changes>")[1] is None
+
+    # changes 검증 · 적용: 잘못된 것이 하나라도 있으면 아무것도 안 바뀐다
+    st = {"meta": {"host": "cp", "cmd_count": 3}, "clusters": {"c": {"objects": {"d/pod/a": {"spec": {"x": [1, 2]}}}}}}
+    new, lines = apply_changes(st, [
+        {"op": "set", "path": ["clusters", "c", "objects", "d/namespace/n", "status", "phase"], "value": "Active"},
+        {"op": "set", "path": ["clusters", "c", "objects", "d/pod/a", "spec", "x", 1], "value": 9},
+        {"op": "set", "path": ["meta", "cmd_count"], "value": 99},
+        {"op": "delete", "path": ["clusters", "c", "objects", "d/pod/gone"]},
+        {"op": "set", "path": ["meta", "host"], "value": "node01"}])
+    assert new["clusters"]["c"]["objects"]["d/namespace/n"] == {"status": {"phase": "Active"}}
+    assert new["clusters"]["c"]["objects"]["d/pod/a"]["spec"]["x"] == [1, 9]
+    assert new["meta"] == {"host": "node01", "cmd_count": 3}, new["meta"]
+    assert st["meta"]["host"] == "cp" and len(lines) == 4, lines
+    for bad in ([{"op": "set", "path": ["answer"], "value": 1}], [{"op": "rm", "path": ["meta"]}],
+                [{"op": "set", "path": ["meta", "host"]}], [{"op": "set", "path": ["clusters", "c", "objects", "d/pod/a", "spec", "x", "k"], "value": 1}],
+                {"op": "set"}):
+        try:
+            apply_changes(st, bad)
+            raise AssertionError(f"should reject {bad}")
+        except ValueError:
+            pass
+
+    # 입력에 answer-key · 풀이 · 환경 파일 내용이 들어가지 않는다
+    with tempfile.TemporaryDirectory() as tmp:
+        cka = Path(tmp) / ".cka"
+        (cka / "q01").mkdir(parents=True)
+        (cka / "q01" / "problem.md").write_text("Create ns")
+        (cka / "q01" / "history.md").write_text("# history q01\n### #1  x\n$ ls\n> a\n변경: 없음\n")
+        (cka / "q01" / "answer-key.md").write_text("SECRET-ANSWER")
+        (Path(tmp) / "exams").mkdir()
+        (Path(tmp) / "exams" / "x.answers.md").write_text("SECRET-SOLUTION")
+        prompt = build_cmd_input(cka, "q01", {"meta": {}}, 1, "cp", "kubectl create deployment web --image=nginx")
+        assert "SECRET" not in prompt and "Create ns" in prompt and "$ ls" in prompt
+        assert "kubectl_create_deployment.md" in prompt and "# terminal=1 host=cp" in prompt
+    assert set(kubectl_refs("cat <<EOF | kubectl apply -f -")) == {"kubectl_apply.md"}
+    assert set(kubectl_refs("kubectl -n dev get pods")) == {"kubectl_get.md"}
+    assert set(kubectl_refs("kubectl gte po")) == {"kubectl.md"}
+    assert "### #2" in history_entry(2, "ls", "a\nb\nc\nd", []) and "> d" not in history_entry(2, "ls", "a\nb\nc\nd", [])
     print("selftest ok")
 
 

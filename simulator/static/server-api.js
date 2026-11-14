@@ -32,7 +32,10 @@
     },
     // POST /api/cmd -> SSE: "data: <json string>" deltas, then "event: done" or "event: error".
     async *cmd({text, terminal, host}) {
-      const res = await fetch('/api/cmd', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Sim': '1'}, body: JSON.stringify({text, terminal, host})});
+      // Obvious typos (unknown command, kubectl flag) get the real error without Claude; the server only records them.
+      const localOutput = window.CommandCheck ? window.CommandCheck.check(text) : null;
+      const payload = localOutput ? {text, terminal, host, local_output: localOutput} : {text, terminal, host};
+      const res = await fetch('/api/cmd', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Sim': '1'}, body: JSON.stringify(payload)});
       if (!res.ok) { const data = await res.json().catch(() => ({})); throw Error(data.error || `서버 오류 (${res.status})`); }
       const reader = res.body.getReader(), decoder = new TextDecoder();
       let buffer = '';
