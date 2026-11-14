@@ -61,7 +61,15 @@
     catalogSelection = entry;
     $('exam-selection').hidden = false;
     $('selected-exam-name').textContent = entry.file.name;
-    if (entry.attempts.length) window.AttemptsUI.renderAttempts($('exam-attempts'), {groups: [{exam: entry.file.name, attempts: entry.attempts}], skipped: 0});
+    if (entry.attempts.length) {
+      // 접힌 한 줄 요약만 보이고, 누르면 문항별 표가 펼쳐진다
+      const last = entry.attempts.at(-1), fold = document.createElement('details'), line = document.createElement('summary'), table = document.createElement('div');
+      fold.className = 'attempts-fold';
+      line.textContent = `지난 차시 ${entry.attempts.length}회 · 최근 ${last.total}% ${last.passed ? '합격' : '불합격'}`;
+      window.AttemptsUI.renderAttempts(table, {groups: [{exam: entry.file.name, attempts: entry.attempts}], skipped: 0});
+      fold.append(line, table);
+      $('exam-attempts').replaceChildren(fold);
+    }
     else $('exam-attempts').textContent = '첫 차시입니다';
     $('solution-note').textContent = entry.solution ? '' : '풀이 파일이 없어 종료 후 풀이를 볼 수 없습니다';
     const saved = savedFor(entry), next = entry.attempts.length + 1;

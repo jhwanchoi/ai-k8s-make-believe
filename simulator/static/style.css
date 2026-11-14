@@ -185,3 +185,12 @@ dialog::backdrop{background:#10243588}
 #start-example:hover{background:#f2f5f8}
 button:focus-visible,#exam-list label:has(input:focus-visible){outline:2px solid #246aa8;outline-offset:2px}
 @media(prefers-reduced-motion:reduce){.start-progress::before{animation:none}}
+.attempts-fold summary{cursor:pointer;color:#3a4a58;list-style:none;display:inline-flex;align-items:center;gap:6px}
+.attempts-fold summary::-webkit-details-marker{display:none}
+.attempts-fold summary::before{content:"▸";font-size:11px;color:#8696a4;transition:transform .15s}
+.attempts-fold[open] summary::before{transform:rotate(90deg)}
+.attempts-fold summary::after{content:"자세히";font-size:12px;color:#246aa8;text-decoration:underline;text-underline-offset:3px}
+.attempts-fold[open] summary::after{content:"접기"}
+.attempts-fold .attempt-group{margin-top:10px}
+.attempts-fold .attempt-group h3,.attempts-fold .attempt-group>p{display:none}
+.attempts-fold .attempt-table{max-height:320px;overflow:auto}
