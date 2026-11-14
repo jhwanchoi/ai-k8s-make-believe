@@ -105,6 +105,20 @@ window.TerminalWorkspace = class {
     const headers = window.TerminalWorkspace.prototype.splitResponse(response).blocks.map(block => block.split('\n')[0].match(/^# \[SIM\] host=(\S+) ctx=(\S+)$/)).filter(Boolean);
     if (headers.length) { t.host = headers.at(-1)[1]; this.state.contexts[t.host] = headers.at(-1)[2]; }
   }
+  // Show it like a real terminal: drop "# [SIM] host= ctx=" headers (kept in the response for host tracking) and the
+  // "$ <typed command>" echo; any other "$ " line (multi-line input) becomes a prompt line.
+  screenText(text, entry) {
+    const typed = entry.text.split('\n').map(l => l.trim()), out = [];
+    let echo = -1;
+    for (const line of text.split('\n')) {
+      if (/^# \[SIM\] host=\S+ ctx=\S+$/.test(line)) continue;
+      if (echo === -1 && line.startsWith('$ ') && line.slice(2).trim() === typed[0]) { echo = 1; continue; }
+      if (echo > 0 && echo < typed.length && line.replace(/^> /, '').trim() === typed[echo]) { echo++; continue; }
+      if (echo > 0) echo = typed.length;
+      out.push(line.startsWith('$ ') ? `root@${entry.host}:~# ${line.slice(2)}` : line);
+    }
+    return out.join('\n').trim();
+  }
   contextFor(host) { return this.state.contexts[host] ?? this.state.defaultContext; }
   renderHeader(t) {
     const v = t.view;
@@ -118,12 +132,9 @@ window.TerminalWorkspace = class {
     const v = t.view, follow = v.output.scrollHeight - v.output.scrollTop - v.output.clientHeight < 70;
     this.renderHeader(t);
     v.output.replaceChildren();
-    if (!t.entries.length) {
-      const welcome = document.createElement('pre'); welcome.textContent = `# [SIM] host=${t.host} ctx=${this.contextFor(t.host)}\nVirtual terminal ready. No real commands are executed.`; v.output.append(welcome);
-    }
     t.entries.forEach((entry, i) => {
-      const command = document.createElement('pre'); command.className = 'input-line'; command.textContent = `root@${entry.host}:~# ${entry.text}`;
-      const response = this.splitResponse(entry.response), output = document.createElement('pre'); output.textContent = response.console;
+      const command = document.createElement('pre'); command.className = 'input-line'; command.textContent = `root@${entry.host}:~# ${entry.text.split('\n').join('\n> ')}`;
+      const response = this.splitResponse(entry.response), output = document.createElement('pre'); output.textContent = this.screenText(response.console, entry);
       v.output.append(command, output);
       if (response.note && i < t.entries.length - 1) { const note = document.createElement('div'); note.className = 'response-note'; note.textContent = response.note; v.output.append(note); }
     });

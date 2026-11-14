@@ -3,6 +3,7 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const api = window.MockAPI;
+  const MOCK = !window.SIM_SERVER; // server.py 로 열면 Claude 가 실제로 시뮬레이션하고 채점한다
   let exam, selectedFile, selectedAnswers = null, answerCount = 0, readingAnswers = false, busy = false, expired = false, timer;
   let preferences = {}, eventLog = null, ownershipLost = false;
   const conflictMessage = '다른 탭에서 이 시험을 이어 풀고 있습니다. 이 탭은 닫으세요';
@@ -183,14 +184,14 @@
     const expected = localStorage.getItem(key);
     $('start-file').disabled = $('start-example').disabled = $('file').disabled = $('answers-file').disabled = true;
     $('report-rows').replaceChildren();
-    notice('가상 시험 환경을 준비하고 있습니다. 약 1~3초 걸립니다.');
+    notice(MOCK ? '가상 시험 환경을 준비하고 있습니다. 약 1~3초 걸립니다.' : 'Claude 가 1번 문제 환경을 만들고 있습니다. 몇 분 걸릴 수 있습니다.');
     try {
       exam = await api.startExam({file, answers, minutes: Number($('minutes').value)});
       ownershipLost = false;
       eventLog = new window.ExamLog({onError: storageNotice, storageDisabled, key, expected, onConflict: loseOwnership});
       eventLog.append('start', {title: exam.title, problemText: file.text, minutes: Number($('minutes').value)});
       installExam();
-      notice('목업 모드 · 응답과 점수는 고정 예시입니다. 실제 명령을 실행하지 않습니다.');
+      notice(MOCK ? '목업 모드 · 응답과 점수는 고정 예시입니다. 실제 명령을 실행하지 않습니다.' : 'Claude 시뮬레이션 · 명령 하나에 수십 초 걸릴 수 있습니다. 실제 명령은 실행하지 않습니다.');
       terminals.focus();
     } catch (error) { notice(error.message); }
     finally { $('start-file').disabled = !selectedFile; $('start-example').disabled = $('file').disabled = $('answers-file').disabled = false; }
@@ -225,15 +226,15 @@
   }
   async function end() {
     if (occupied()) return;
-    setBusy(true, '목업 리포트를 준비하고 있습니다');
+    setBusy(true, MOCK ? '목업 리포트를 준비하고 있습니다' : '채점하고 리포트를 만들고 있습니다');
     $('confirm-end').disabled = $('cancel-end').disabled = true;
-    $('end-status').textContent = '채점 중… 약 1~3초 걸립니다.';
+    $('end-status').textContent = MOCK ? '채점 중… 약 1~3초 걸립니다.' : '채점 중… 문제 수에 따라 몇 분 걸릴 수 있습니다.';
     try {
       const result = await api.endExam(); exam.ended = true; eventLog.append('end'); clearInterval(timer);
       const elapsed = window.ExamLog.timing(eventLog.events).elapsed;
       $('actual-time').textContent = `실제 사용 시간: ${Math.floor(elapsed / 60)}분 ${Math.floor(elapsed % 60)}초 (자리 비운 시간 제외)`;
       $('score').textContent = `${result.total}%`;
-      $('result').textContent = result.passed ? '합격 (목업)' : '불합격 (목업)';
+      $('result').textContent = (result.passed ? '합격' : '불합격') + (MOCK ? ' (목업)' : '');
       $('report-rows').replaceChildren();
       const domains = new Map();
       for (const p of result.problems) {
@@ -246,10 +247,10 @@
       $('weaknesses').replaceChildren();
       for (const [name, d] of domains) {
         const line = document.createElement('p'); const ratio = Math.round(d.score / d.weight * 100);
-        line.textContent = `${name} · ${ratio}% — ${ratio < 66 ? '추가 연습이 필요한 도메인입니다.' : '예시 기준으로 안정적인 도메인입니다.'}`;
+        line.textContent = `${name} · ${ratio}% — ${ratio < 66 ? '추가 연습이 필요한 도메인입니다.' : (MOCK ? '예시 기준으로 안정적인 도메인입니다.' : '안정적인 도메인입니다.')}`;
         $('weaknesses').append(line);
       }
-      $('end-dialog').close(); screen('report'); notice('목업 데이터 · 실제 채점 결과가 아닙니다.');
+      $('end-dialog').close(); screen('report'); notice(MOCK ? '목업 데이터 · 실제 채점 결과가 아닙니다.' : `리포트: ${result.path || '.cka/exam-report-*.md'}`);
       $('report').tabIndex = -1; $('report').focus();
     } catch (error) { $('end-status').textContent = `${error.message} 다시 시도하세요.`; }
     finally { setBusy(false); $('confirm-end').disabled = $('cancel-end').disabled = false; }
