@@ -156,3 +156,9 @@ dialog::backdrop{background:#10243588}
 .attempt-table tfoot{background:#f1f6fc}
 
 #exam-list input[type="radio"]{width:auto;margin-right:8px}
+
+/* 시험 시작 진행 표시: 버튼 바로 아래, 경과 초와 회전 표시 */
+.start-progress{display:flex;align-items:center;gap:8px;margin:10px 0;padding:10px 12px;border-radius:6px;background:#e7edf6;color:#243b5e;font-size:14px;font-weight:600}
+.start-progress[hidden]{display:none}
+.start-progress::before{content:"";width:14px;height:14px;flex:none;border:2px solid #9fb3cf;border-top-color:#243b5e;border-radius:50%;animation:start-spin .8s linear infinite}
+@keyframes start-spin{to{transform:rotate(360deg)}}

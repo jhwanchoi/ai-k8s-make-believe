@@ -77,7 +77,12 @@
     catalogSelection = null; $('exam-selection').hidden = true;
     $('exam-list').textContent = '시험 목록을 읽고 있습니다…';
     try {
-      const result = await window.ExamCatalog.load($('practice-folder').files, api.parseFile, window.AttemptsUI.parseAttempts);
+      let result = await window.ExamCatalog.load($('practice-folder').files, api.parseFile, window.AttemptsUI.parseAttempts);
+      // 서버 모드: 차시 기록은 서버 연습 폴더의 것을 쓴다 (exams/ 만 골라도 지난 차시가 보이게)
+      if (window.SIM_SERVER && api.attempts) {
+        const history = window.AttemptsUI.parseAttempts(await api.attempts().catch(() => ''));
+        result = {exams: window.ExamCatalog.assemble(result.exams, history.groups, api.parseFile), skipped: history.skipped};
+      }
       if (window.SIM_SERVER) serverExam = await api.getExam().catch(() => null);
       if (token !== catalogToken) return;
       $('exam-list').replaceChildren();
@@ -189,6 +194,11 @@
     $('start-file').disabled = $('start-example').disabled = $('file').disabled = $('answers-file').disabled = true;
     $('report-rows').replaceChildren();
     notice(MOCK ? '가상 시험 환경을 준비하고 있습니다. 약 1~3초 걸립니다.' : 'Claude 가 1번 문제 환경을 만들고 있습니다. 몇 분 걸릴 수 있습니다.');
+    // 버튼 바로 아래에 경과 시간을 보여 준다 (서버 모드는 1~2분 걸린다)
+    const began = Date.now(), progress = $('start-progress');
+    const showProgress = () => { progress.textContent = `${MOCK ? '시험을 준비하는 중' : 'Claude 가 1번 문제 환경을 만드는 중'} · ${Math.round((Date.now() - began) / 1000)}초${MOCK ? '' : ' (보통 1~2분)'}`; };
+    progress.hidden = false; showProgress();
+    const progressTimer = setInterval(showProgress, 1000);
     try {
       exam = await api.startExam({file, answers, minutes: Number($('minutes').value)});
       ownershipLost = false;
@@ -198,7 +208,7 @@
       notice(MOCK ? '목업 모드 · 응답과 점수는 고정 예시입니다. 실제 명령을 실행하지 않습니다.' : 'Claude 시뮬레이션 · 명령 하나에 수십 초 걸릴 수 있습니다. 실제 명령은 실행하지 않습니다.');
       terminals.focus();
     } catch (error) { notice(error.message); }
-    finally { $('start-file').disabled = !selectedFile; $('start-example').disabled = $('file').disabled = $('answers-file').disabled = false; }
+    finally { clearInterval(progressTimer); progress.hidden = true; $('start-file').disabled = !selectedFile; $('start-example').disabled = $('file').disabled = $('answers-file').disabled = false; }
   }
   function tick() {
     if (!exam || exam.ended) return;

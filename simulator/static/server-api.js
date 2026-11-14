@@ -17,6 +17,7 @@
     exampleFile: local.exampleFile,
     bindLog: local.bindLog,
     getExam: () => call('GET', '/api/exam'),
+    attempts: () => call('GET', '/api/attempts').then(d => (d.lines || []).map(l => JSON.stringify(l)).join('\n')),
     complete: ({host}) => call('GET', `/api/complete?host=${encodeURIComponent(host)}`),
     startExam: ({file, answers = null, minutes}) => call('POST', '/api/exam/start', {file, answers, minutes}),
     gotoExam: ({n}) => call('POST', '/api/exam/goto', {n}),
