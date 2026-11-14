@@ -106,6 +106,7 @@ CKA_HISTORY_EOF
 - 객체 값은 `kubectl get -o json` 구조에서 apiVersion, kind, metadata.name, metadata.namespace 를 뺀 나머지 중 필요한 필드만 둔다 (`metadata.labels`, `spec`, `status`, RBAC 의 `rules`, `subjects`, `roleRef` 등). 필드 위치는 실제 API 와 똑같이 둔다. grader 의 루브릭 경로가 이 규칙을 전제로 한다.
 - 숨은 고장은 **증상만** 넣는다 (깨진 파일 내용, 서비스 상태, logs 줄). 원인 설명은 answer-key 에만 있다. `journalctl`, `kubectl logs`, `crictl logs`, `systemctl status` 출력은 이 값으로 만든다.
 - 바이너리 파일은 `<binary: ...>` 설명 문자열로 둔다.
+- 파일 속성(`ls -l` 의 권한, 소유자, 수정 시각)은 처음 보여 줄 때 `hosts.<host>.file_attrs["<경로>"] = {mode, owner, group, mtime}` 에 넣고 이후 그대로 쓴다. 크기는 내용 길이로 계산한다.
 - 처음 보여준 출력을 나중에 또 보여줄 일이 있으면 (예: `kubectl get ns` 목록) 그때 state 에 넣어 일관성을 지킨다.
 
 ## 명령 처리 (/ai-k8s-make-believe:cka, "$ ..." 입력)

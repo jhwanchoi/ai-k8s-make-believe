@@ -247,6 +247,9 @@ def build_cmd_input(cka, pid, state, terminal, host, text):
              f"## 최근 명령 기록\n{recent_history(d / 'history.md') or '(없음)'}"]
     for name, body in kubectl_refs(text).items():
         parts.append(f"## kubectl 레퍼런스 {name}\n{body}")
+    sizes = [f"{h} {path}: {len(body.encode())}" for h, hv in state.get("hosts", {}).items()
+             for path, body in hv.get("files", {}).items() if isinstance(body, str) and not body.startswith("<")]
+    parts.append("## 파일 크기 (바이트)\n" + ("\n".join(sizes) or "(없음)"))
     started = time.gmtime((d / "state.init.json").stat().st_mtime) if (d / "state.init.json").exists() else time.gmtime()
     parts.append(f"## 시각\n현재 시각: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n"
                  f"문제 시작 시각: {time.strftime('%Y-%m-%dT%H:%M:%SZ', started)}")
@@ -770,6 +773,9 @@ def _selftest():
         prompt = build_cmd_input(cka, "q01", {"meta": {}}, 1, "cp", "kubectl create deployment web --image=nginx")
         assert "SECRET" not in prompt and "Create ns" in prompt and "$ ls" in prompt
         assert "kubectl_create_deployment.md" in prompt and "# terminal=1 host=cp" in prompt
+        files = {"hosts": {"cp": {"files": {"/root/a.yaml": "kind: Pod\n이름\n", "/opt/x.db": "<binary: snapshot>"}}}}
+        sized = build_cmd_input(cka, "q01", files, 1, "cp", "ll")
+        assert "cp /root/a.yaml: 17" in sized and "/opt/x.db" not in sized.split("## 파일 크기")[1].split("##")[0]
     assert set(kubectl_refs("cat <<EOF | kubectl apply -f -")) == {"kubectl_apply.md"}
     assert set(kubectl_refs("kubectl -n dev get pods")) == {"kubectl_get.md"}
     assert set(kubectl_refs("kubectl gte po")) == {"kubectl.md"}

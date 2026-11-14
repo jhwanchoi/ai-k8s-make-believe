@@ -22,7 +22,16 @@
 - 파일은 `hosts.<host>.files["<절대 경로>"]` 문자열. 서비스 상태는 `hosts.<host>.services`, 로그는 `hosts.<host>.logs`. 바이너리는 `<binary: 설명>`.
 - 현재 위치는 `meta.host`, `meta.context`, `meta.user`, `meta.cwd`. `~` 는 root 면 `/root`.
 - 시간: 입력의 `현재 시각` 과 `문제 시작 시각` 을 쓴다. 새로 만드는 객체에는 `metadata.creationTimestamp`(RFC 3339, 현재 시각)를 넣는다. AGE 는 현재 시각 − creationTimestamp 로 계산한다. creationTimestamp 가 없는 문제 객체는 문제 시작 시각에 만들어진 것으로, 기본 객체는 14d 로 본다. `age` 처럼 API 에 없는 필드를 state 에 넣지 않는다.
-- state 에 없는 것은 없는 것이다. 단 기본으로 있는 것(default · kube-system · kube-public · kube-node-lease 네임스페이스, kube-system 의 컨트롤 플레인 Pod, default 의 kubernetes Service, 홈 디렉터리의 .bashrc · .profile · .kube/)은 실제 클러스터처럼 보여 준다. 한 번 보여 준 기본 항목을 나중에 다르게 보여 줄 위험이 있으면 changes 로 state 에 넣어 고정한다.
+- state 에 없는 것은 없는 것이다. 단 기본으로 있는 것(default · kube-system · kube-public · kube-node-lease 네임스페이스, kube-system 의 컨트롤 플레인 Pod, default 의 kubernetes Service, 홈 디렉터리의 .bashrc · .profile · .kube/)은 실제 클러스터처럼 보여 준다. 처음 보여 줄 때 아래 "처음 보여 준 값은 고정한다" 대로 state 에 넣는다.
+
+## 처음 보여 준 값은 고정한다
+
+실제 서버는 같은 명령에 같은 값을 보여 준다. 출력에 state 에 없는 세부 값을 처음 쓰면 **같은 응답의 changes 로 반드시 저장**하고, 다음부터는 저장된 값을 그대로 쓴다. 새로 지어내지 않는다.
+
+- 파일 속성(`ls -l`, `ll`, `stat`): `hosts.<host>.file_attrs["<절대 경로>"] = {"mode": "-rw-r--r--", "owner": "root", "group": "root", "mtime": "<RFC 3339>"}`. 처음 보여 준 기본 파일(.bashrc, .profile 등)은 `hosts.<host>.files` 에도 `<text: 설명>` 으로 넣는다. 디렉터리는 따로 두지 않고 그 안의 파일 경로로 나타낸다(`.kube/` → `/root/.kube/config`). 디렉터리의 링크 수는 2 + 바로 아래 하위 디렉터리 수, 크기는 4096 이다.
+- 파일 크기는 입력의 `파일 크기` 값을 쓴다(서버가 내용 길이로 계산한다). 목록에 없는 `<…>` 설명 파일만 크기를 정해 `file_attrs` 의 `size` 로 저장한다.
+- 파일을 만들거나 고치면 그 파일의 `file_attrs.mtime` 을 현재 시각으로 set 한다.
+- Pod IP(`status.podIP`), ClusterIP(`spec.clusterIP`), 노드 IP(`nodes.<node>.internalIP`), 해시 접미사가 붙은 이름(ReplicaSet, Pod), `metadata.uid`, 이벤트는 실제 API 위치에 저장한다.
 
 ## 명령 해석
 
