@@ -19,6 +19,7 @@ import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 REPO = Path(__file__).resolve().parent.parent
 STATIC = REPO / "simulator" / "static"
@@ -119,7 +120,10 @@ class Claude:
         """프롬프트 하나를 보내고 마지막 결과 텍스트를 돌려준다. on_line 은 줄이 올 때마다 불린다(SSE keepalive 용)."""
         args = ["claude", "-p", "--plugin-dir", str(REPO), "--add-dir", str(REPO), "--permission-mode", "acceptEdits",
                 "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--model", self.model,
-                "--append-system-prompt", HEADLESS, "--allowedTools", *ALLOWED_TOOLS]
+                "--append-system-prompt", HEADLESS, "--allowedTools", *ALLOWED_TOOLS,
+                # 사용자 전역 설정(~/.claude/settings.json 의 훅·플러그인·MCP)을 읽지 않는다. 한 번에 30초 넘게 걸리던 원인.
+                # 이 플러그인 훅(guard)은 --plugin-dir 로 들어오므로 그대로 동작한다.
+                "--setting-sources", "project,local"]
         sid = self.session()
         if sid:
             args += ["--resume", sid]
@@ -225,6 +229,17 @@ class Exams:
                 pass
         return out
 
+    def completion(self, host):
+        """Tab 자동완성용: 현재 문제의 가상 파일 경로, 객체 이름, 노드. ls · get 으로 보이는 것만 담고 answer-key 는 읽지 않는다."""
+        try:
+            pid = (self.cka / "current").read_text().strip()
+        except OSError:
+            return {"files": [], "objects": [], "nodes": []}
+        state = self._json(self.cka / pid / "state.json", {}) if pid and "/" not in pid else {}
+        cluster = state.get("clusters", {}).get(state.get("meta", {}).get("context", ""), {})
+        return {"files": sorted(state.get("hosts", {}).get(host, {}).get("files", {})),
+                "objects": sorted(cluster.get("objects", {})), "nodes": sorted(cluster.get("nodes", {}))}
+
     def report(self):
         """종료 뒤에만 부른다. 마지막 차시 기록 + 풀이 파일(있으면)."""
         meta = self.meta()
@@ -295,6 +310,9 @@ def make_handler(practice, claude, exams, port):
                 return self._json(200, exams.list())
             if self.path == "/api/attempts":
                 return self._json(200, {"lines": exams.attempt_lines()})
+            if self.path.startswith("/api/complete"):
+                host = parse_qs(urlsplit(self.path).query).get("host", [""])[0]
+                return self._json(200, exams.completion(host))
             self._json(404, {"error": "not found"})
 
         def do_POST(self):

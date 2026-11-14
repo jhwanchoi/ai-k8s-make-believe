@@ -53,6 +53,7 @@
   }
   $('direct-attempts').append(document.querySelector('.attempts-card'));
   let catalogSelection = null, catalogToken = 0, catalogBusy = false;
+  let serverExam = null; // server mode: the exam the server currently holds (null if none)
   function savedFor(entry) {
     return window.ExamLog.saved(notice).find(saved => saved.key === window.ExamLog.findKey(entry.text));
   }
@@ -64,7 +65,9 @@
     else $('exam-attempts').textContent = '첫 차시입니다';
     $('solution-note').textContent = entry.solution ? '' : '풀이 파일이 없어 종료 후 풀이를 볼 수 없습니다';
     const saved = savedFor(entry), next = entry.attempts.length + 1;
-    $('catalog-resume').hidden = !saved;
+    // Server mode: a browser log can be resumed only while the server still holds the same exam.
+    const resumable = saved && (!window.SIM_SERVER || (serverExam && !serverExam.ended && serverExam.title === saved.events?.[0]?.title));
+    $('catalog-resume').hidden = !resumable;
     $('catalog-resume').textContent = `${next}차시 이어서 풀기`;
     $('catalog-start').textContent = `${saved ? '버리고 ' : ''}${next}차시 새로 시작`;
     $('catalog-start').disabled = $('catalog-resume').disabled = !!entry.error || catalogBusy;
@@ -75,6 +78,7 @@
     $('exam-list').textContent = '시험 목록을 읽고 있습니다…';
     try {
       const result = await window.ExamCatalog.load($('practice-folder').files, api.parseFile, window.AttemptsUI.parseAttempts);
+      if (window.SIM_SERVER) serverExam = await api.getExam().catch(() => null);
       if (token !== catalogToken) return;
       $('exam-list').replaceChildren();
       if (!result.exams.length) $('exam-list').textContent = '시험 파일이 없습니다.';

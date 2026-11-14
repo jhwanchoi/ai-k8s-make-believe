@@ -88,6 +88,10 @@ window.TerminalWorkspace = class {
   }
   keydown(event, t, form) {
     if (event.isComposing) return;
+    // Tab completes like bash (Shift+Tab still moves focus)
+    if (event.key === 'Tab' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && window.Completion) {
+      event.preventDefault(); this.tabComplete(t); return;
+    }
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); }
     if (['ArrowUp', 'ArrowDown'].includes(event.key) && !event.shiftKey && !event.altKey && !t.view.input.value.includes('\n') && t.history.length) {
       event.preventDefault();
@@ -95,6 +99,18 @@ window.TerminalWorkspace = class {
       t.historyIndex = Math.max(0, Math.min(t.history.length, t.historyIndex + (event.key === 'ArrowUp' ? -1 : 1)));
       t.draft = t.historyIndex === t.history.length ? t.savedDraft : t.history[t.historyIndex]; t.view.input.value = t.draft;
     }
+  }
+  // Paths and names come from the current problem state (/api/complete), fetched once per host until the next command.
+  async tabComplete(t) {
+    const input = t.view.input, host = t.host;
+    if (!t.completion || t.completion.host !== host) {
+      let data = {};
+      try { data = this.api.complete ? await this.api.complete({host}) : {}; } catch { data = {}; }
+      t.completion = {host, data};
+    }
+    const r = window.Completion.complete(input.value, input.selectionStart, t.completion.data);
+    input.value = t.draft = r.text; input.setSelectionRange(r.cursor, r.cursor);
+    t.view.note.textContent = r.candidates.join('   ');
   }
   splitResponse(markdown) {
     const blocks = [];
@@ -159,7 +175,7 @@ window.TerminalWorkspace = class {
         t.phase = 'running'; t.status = 'Claude 응답 대기 중'; this.renderStatus(t);
         const started = Date.now();
         const interval = setInterval(() => { t.status = `Claude 응답 대기/수신 중 · ${Math.floor((Date.now() - started) / 1000)}초 경과`; this.renderStatus(t); }, 1000);
-        const entry = {text, host: t.host, response: ''}; t.entries.push(entry); t.history.push(text); t.historyIndex = t.history.length; this.render(t);
+        t.completion = null; const entry = {text, host: t.host, response: ''}; t.entries.push(entry); t.history.push(text); t.historyIndex = t.history.length; this.render(t);
         try {
           for await (const delta of this.api.cmd({text, terminal: t.n, host: t.host})) { entry.response += delta; this.render(t); }
           this.applyResponse(t, entry.response); this.onWindows();
