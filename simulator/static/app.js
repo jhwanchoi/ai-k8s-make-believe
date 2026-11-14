@@ -71,7 +71,7 @@
       $('exam-attempts').replaceChildren(fold);
     }
     else $('exam-attempts').textContent = '첫 차시입니다';
-    $('solution-note').textContent = entry.solution ? '' : '풀이 파일이 없어 종료 후 풀이를 볼 수 없습니다';
+    $('solution-note').textContent = hasSolution(entry) ? '' : '풀이 파일이 없어 종료 후 풀이를 볼 수 없습니다';
     const saved = savedFor(entry), next = entry.attempts.length + 1;
     // Server mode: a browser log can be resumed only while the server still holds the same exam.
     const resumable = saved && (!window.SIM_SERVER || (serverExam && !serverExam.ended && serverExam.title === saved.events?.[0]?.title));
@@ -82,12 +82,13 @@
     $('catalog-start').className = resumable ? 'quiet danger' : 'primary';
     $('catalog-start').disabled = $('catalog-resume').disabled = !!entry.error || catalogBusy;
   }
-  $('practice-folder').onchange = async () => {
+  const hasSolution = entry => !!(entry.solution || entry.serverSolution);
+  async function refreshCatalog(load) {
     const token = ++catalogToken;
     catalogSelection = null; $('exam-selection').hidden = true;
     $('exam-list').textContent = '시험 목록을 읽고 있습니다…';
     try {
-      let result = await window.ExamCatalog.load($('practice-folder').files, api.parseFile, window.AttemptsUI.parseAttempts);
+      let result = await load();
       // 서버 모드: 차시 기록은 서버 연습 폴더의 것을 쓴다 (exams/ 만 골라도 지난 차시가 보이게)
       if (window.SIM_SERVER && api.attempts) {
         const history = window.AttemptsUI.parseAttempts(await api.attempts().catch(() => ''));
@@ -101,12 +102,21 @@
         const label = document.createElement('label'), radio = document.createElement('input');
         radio.type = 'radio'; radio.name = 'catalog-exam';
         radio.onchange = () => showCatalogSelection(entry);
-        label.append(radio, document.createTextNode(`${entry.file.name} · ${entry.error || entry.count + '문항'} · 풀이 ${entry.solution ? '있음' : '없음'} · 지난 차시 ${entry.attempts.length}회`));
+        label.append(radio, document.createTextNode(`${entry.file.name} · ${entry.error || entry.count + '문항'} · 풀이 ${hasSolution(entry) ? '있음' : '없음'} · 지난 차시 ${entry.attempts.length}회`));
         $('exam-list').append(label);
       }
       notice(result.skipped ? `${result.skipped}줄을 읽지 못했습니다` : '시험을 선택하세요.');
     } catch (error) { if (token === catalogToken) $('exam-list').textContent = error.message; }
-  };
+  }
+  $('practice-folder').onchange = () => refreshCatalog(() => window.ExamCatalog.load($('practice-folder').files, api.parseFile, window.AttemptsUI.parseAttempts));
+  // 서버 모드: 연습 폴더는 서버가 안다(--practice). 고르지 않아도 열 때마다 바로 목록을 읽는다
+  if (window.SIM_SERVER && api.serverCatalog) {
+    $('practice-folder').hidden = true;
+    const folderLabel = document.querySelector('label[for="practice-folder"]'), folderHelp = $('practice-folder').nextElementSibling;
+    folderLabel.textContent = '연습 폴더';
+    folderHelp.textContent = `${window.SIM_PRACTICE || '서버 연습 폴더'} · 서버를 띄울 때 --practice 로 바꿀 수 있습니다.`;
+    refreshCatalog(() => api.serverCatalog());
+  }
   async function beginCatalog(resuming) {
     if (catalogBusy || busy || readingAnswers || !catalogSelection || catalogSelection.error) return;
     if (!resuming && !$('minutes').reportValidity()) return;

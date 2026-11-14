@@ -17,6 +17,14 @@
     exampleFile: local.exampleFile,
     bindLog: local.bindLog,
     getExam: () => call('GET', '/api/exam'),
+    // 서버 연습 폴더의 exams/ 목록과 원문. 풀이는 보내지 않고 있다는 표시만 받는다
+    serverCatalog: async () => {
+      const list = await call('GET', '/api/exams');
+      return {exams: await Promise.all(list.map(async item => {
+        const {text} = await call('GET', `/api/exam-file?name=${encodeURIComponent(item.name)}`).catch(() => ({text: ''}));
+        return {file: {name: item.name}, path: `exams/${item.name}`, text, solution: null, serverSolution: item.solution};
+      })), skipped: 0};
+    },
     attempts: () => call('GET', '/api/attempts').then(d => (d.lines || []).map(l => JSON.stringify(l)).join('\n')),
     complete: ({host}) => call('GET', `/api/complete?host=${encodeURIComponent(host)}`),
     startExam: ({file, answers = null, minutes}) => call('POST', '/api/exam/start', {file, answers, minutes}),

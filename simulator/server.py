@@ -492,7 +492,8 @@ def make_handler(practice, claude, exams, port):
 
         def do_GET(self):
             if self.path == "/config.js":
-                data = b"window.SIM_SERVER = true;\n"
+                shown = str(practice).replace(str(Path.home()), "~", 1)
+                data = f"window.SIM_SERVER = true;\nwindow.SIM_PRACTICE = {json.dumps(shown)};\n".encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript")
                 self.send_header("Content-Length", str(len(data)))
@@ -509,6 +510,13 @@ def make_handler(practice, claude, exams, port):
                 return self._json(200, exams.list())
             if self.path == "/api/attempts":
                 return self._json(200, {"lines": exams.attempt_lines()})
+            if self.path.startswith("/api/exam-file"):
+                # 문제 파일 원문만 (exam_file 이 경로 이탈 · 풀이 · 환경 파일을 거부한다)
+                try:
+                    path = exam_file(practice, parse_qs(urlsplit(self.path).query).get("name", [""])[0])
+                    return self._json(200, {"name": path.name, "text": path.read_text()})
+                except (ValueError, OSError):
+                    return self._json(404, {"error": "문제 파일을 찾지 못했습니다."})
             if self.path.startswith("/api/complete"):
                 host = parse_qs(urlsplit(self.path).query).get("host", [""])[0]
                 return self._json(200, exams.completion(host))
