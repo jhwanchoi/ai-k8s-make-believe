@@ -162,3 +162,26 @@ dialog::backdrop{background:#10243588}
 .start-progress[hidden]{display:none}
 .start-progress::before{content:"";width:14px;height:14px;flex:none;border:2px solid #9fb3cf;border-top-color:#243b5e;border-radius:50%;animation:start-spin .8s linear infinite}
 @keyframes start-spin{to{transform:rotate(360deg)}}
+
+/* ---- 시작 화면: 시험 고르기 ---- */
+#exam-list{display:grid;gap:8px;margin-top:18px}
+#exam-list label{display:flex;align-items:center;gap:10px;margin:0;padding:11px 13px;border:1px solid var(--line);border-radius:6px;font-weight:400;font-size:13px;color:#3a4a58;cursor:pointer;overflow-wrap:anywhere}
+#exam-list label:hover{border-color:#9fb3cf;background:#f7f9fc}
+#exam-list label:has(input:checked){border-color:#246aa8;background:#eef4fb;color:#1c3550}
+#exam-list input{width:auto;margin:0;accent-color:#246aa8}
+#exam-selection{margin-top:14px;padding:18px 18px 14px;border:1px solid #c9d6e6;border-radius:8px;background:#f7f9fc}
+#selected-exam-name{margin:0 0 10px;font:600 15px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#1c2833;overflow-wrap:anywhere}
+#selected-exam-name::before{content:"$ ";color:#2f9e55}
+#exam-attempts{font-size:13px;color:#546b7b}
+#exam-selection #solution-note:empty{display:none}
+#exam-selection .actions{flex-direction:column;align-items:stretch;gap:6px;margin-top:16px}
+#exam-selection .actions .primary{padding:12px 16px;font-size:15px;font-weight:700;border-radius:6px;text-align:left;display:flex;justify-content:space-between;align-items:center}
+#exam-selection .actions .primary::after{content:"→";font-weight:400}
+.quiet{align-self:flex-start;border:0;background:none;padding:4px 2px;font-size:12px;text-decoration:underline;text-underline-offset:3px}
+.quiet:hover{background:none;color:#7d1520}
+.or{display:flex;align-items:center;gap:10px;margin:18px 0 10px;font-size:12px;color:#8696a4}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+#start-example{width:100%;padding:10px 14px;border-radius:6px;background:#fff;color:#3a4a58}
+#start-example:hover{background:#f2f5f8}
+button:focus-visible,#exam-list label:has(input:focus-visible){outline:2px solid #246aa8;outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.start-progress::before{animation:none}}

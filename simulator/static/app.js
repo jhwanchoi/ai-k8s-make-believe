@@ -70,6 +70,8 @@
     $('catalog-resume').hidden = !resumable;
     $('catalog-resume').textContent = `${next}차시 이어서 풀기`;
     $('catalog-start').textContent = `${saved ? '버리고 ' : ''}${next}차시 새로 시작`;
+    // 주 동작 하나만 크게: 이어 풀 수 있으면 이어 풀기, 아니면 새로 시작. 기록을 버리는 동작은 작은 빨간 글자 버튼
+    $('catalog-start').className = resumable ? 'quiet danger' : 'primary';
     $('catalog-start').disabled = $('catalog-resume').disabled = !!entry.error || catalogBusy;
   }
   $('practice-folder').onchange = async () => {
