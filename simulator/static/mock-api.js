@@ -170,17 +170,14 @@ archive 네임스페이스에 데이터를 보관할 PVC와 Pod를 만드세요.
         let outputHost = host;
         const contextFor = target => Object.hasOwn(p.contexts, target) ? p.contexts[target] : p.context;
         if (!Object.hasOwn(p.contexts, host)) Object.defineProperty(p.contexts, host, {value: p.context, writable: true, enumerable: true, configurable: true});
-        let output = 'Mock command accepted. No real command was executed.';
-        if (/get (po|pods)/.test(text)) output = `NAME                     READY   STATUS             RESTARTS   AGE\nledger-7b9c6d-xp2mn      0/1     CrashLoopBackOff   3          4m`;
-        else if (/get (node|nodes)/.test(text)) output = 'NAME           STATUS   ROLES           AGE   VERSION\ncontrolplane   Ready    control-plane   2d    v1.34.1\nworker01       Ready    <none>          2d    v1.34.1';
-        else if (/get (pvc|pv)/.test(text)) output = 'No resources found in archive namespace.';
-        else if (/get (svc|service)/.test(text)) output = 'NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE\nkubernetes   ClusterIP   10.96.0.1    <none>        443/TCP   2d';
-        else if (/config current-context/.test(text)) output = contextFor(host);
-        else if (/^ssh\s+[\w.-]+$/.test(text.trim())) { outputHost = text.trim().split(/\s+/)[1]; output = `Connected to ${outputHost} (simulated).`; }
-        else if (text.trim() === 'exit') { outputHost = p.host; output = 'logout'; }
+        // Real-format answers from an empty cluster (mock-shell.js); nothing is computed or remembered.
+        let output = window.MockShell ? window.MockShell.respond(text, host) : '';
+        if (/^kubectl config current-context$/.test(text.trim())) output = contextFor(host);
+        else if (/^ssh\s+[\w.-]+$/.test(text.trim())) { outputHost = text.trim().split(/\s+/)[1]; output = ''; }
+        else if (text.trim() === 'exit') { output = host === p.host ? 'logout' : `logout\nConnection to ${host} closed.`; outputHost = p.host; }
         else if (/^kubectl config use-context\s+\S+$/.test(text.trim())) { p.contexts[host] = text.trim().split(/\s+/).at(-1); output = `Switched to context "${p.contexts[host]}".`; }
         if (!Object.hasOwn(p.contexts, outputHost)) Object.defineProperty(p.contexts, outputHost, {value: p.context, writable: true, enumerable: true, configurable: true});
-        let markdown = `\`\`\`\`console\n# [SIM] host=${outputHost} ctx=${contextFor(outputHost)}\n$ ${text}\n${output}\n\`\`\`\`\n(추정) 화면 체험용 고정 응답입니다. 실제 클러스터 상태를 계산하지 않습니다.`;
+        let markdown = `\`\`\`\`console\n# [SIM] host=${outputHost} ctx=${contextFor(outputHost)}\n$ ${text}\n${output}\n\`\`\`\``;
         if (text.trim() === 'demo-plain') markdown = 'Simulation notice: this response contains no console block.';
         if (text.trim() === 'demo-mixed') markdown += `\n추가 안내입니다.\n\`\`\`\`console\n# [SIM] host=${outputHost} ctx=${contextFor(outputHost)}\nMock stream complete.\n\`\`\`\``;
         for (let i = 0; i < markdown.length; i += 28) { await wait(45); yield markdown.slice(i, i + 28); }

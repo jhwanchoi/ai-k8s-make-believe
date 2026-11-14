@@ -3,6 +3,7 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const api = window.MockAPI;
+  const MOCK = !window.SIM_SERVER; // server.py 로 열면 Claude 가 실제로 시뮬레이션하고 채점한다
   let exam, selectedFile, selectedAnswers = null, answerCount = 0, readingAnswers = false, busy = false, expired = false, timer;
   let preferences = {}, eventLog = null, ownershipLost = false;
   const conflictMessage = '다른 탭에서 이 시험을 이어 풀고 있습니다. 이 탭은 닫으세요';
@@ -52,6 +53,7 @@
   }
   $('direct-attempts').append(document.querySelector('.attempts-card'));
   let catalogSelection = null, catalogToken = 0, catalogBusy = false;
+  let serverExam = null; // server mode: the exam the server currently holds (null if none)
   function savedFor(entry) {
     return window.ExamLog.saved(notice).find(saved => saved.key === window.ExamLog.findKey(entry.text));
   }
@@ -63,7 +65,9 @@
     else $('exam-attempts').textContent = '첫 차시입니다';
     $('solution-note').textContent = entry.solution ? '' : '풀이 파일이 없어 종료 후 풀이를 볼 수 없습니다';
     const saved = savedFor(entry), next = entry.attempts.length + 1;
-    $('catalog-resume').hidden = !saved;
+    // Server mode: a browser log can be resumed only while the server still holds the same exam.
+    const resumable = saved && (!window.SIM_SERVER || (serverExam && !serverExam.ended && serverExam.title === saved.events?.[0]?.title));
+    $('catalog-resume').hidden = !resumable;
     $('catalog-resume').textContent = `${next}차시 이어서 풀기`;
     $('catalog-start').textContent = `${saved ? '버리고 ' : ''}${next}차시 새로 시작`;
     $('catalog-start').disabled = $('catalog-resume').disabled = !!entry.error || catalogBusy;
@@ -74,6 +78,7 @@
     $('exam-list').textContent = '시험 목록을 읽고 있습니다…';
     try {
       const result = await window.ExamCatalog.load($('practice-folder').files, api.parseFile, window.AttemptsUI.parseAttempts);
+      if (window.SIM_SERVER) serverExam = await api.getExam().catch(() => null);
       if (token !== catalogToken) return;
       $('exam-list').replaceChildren();
       if (!result.exams.length) $('exam-list').textContent = '시험 파일이 없습니다.';
@@ -183,14 +188,14 @@
     const expected = localStorage.getItem(key);
     $('start-file').disabled = $('start-example').disabled = $('file').disabled = $('answers-file').disabled = true;
     $('report-rows').replaceChildren();
-    notice('가상 시험 환경을 준비하고 있습니다. 약 1~3초 걸립니다.');
+    notice(MOCK ? '가상 시험 환경을 준비하고 있습니다. 약 1~3초 걸립니다.' : 'Claude 가 1번 문제 환경을 만들고 있습니다. 몇 분 걸릴 수 있습니다.');
     try {
       exam = await api.startExam({file, answers, minutes: Number($('minutes').value)});
       ownershipLost = false;
       eventLog = new window.ExamLog({onError: storageNotice, storageDisabled, key, expected, onConflict: loseOwnership});
       eventLog.append('start', {title: exam.title, problemText: file.text, minutes: Number($('minutes').value)});
       installExam();
-      notice('목업 모드 · 응답과 점수는 고정 예시입니다. 실제 명령을 실행하지 않습니다.');
+      notice(MOCK ? '목업 모드 · 응답과 점수는 고정 예시입니다. 실제 명령을 실행하지 않습니다.' : 'Claude 시뮬레이션 · 명령 하나에 수십 초 걸릴 수 있습니다. 실제 명령은 실행하지 않습니다.');
       terminals.focus();
     } catch (error) { notice(error.message); }
     finally { $('start-file').disabled = !selectedFile; $('start-example').disabled = $('file').disabled = $('answers-file').disabled = false; }
@@ -225,15 +230,15 @@
   }
   async function end() {
     if (occupied()) return;
-    setBusy(true, '목업 리포트를 준비하고 있습니다');
+    setBusy(true, MOCK ? '목업 리포트를 준비하고 있습니다' : '채점하고 리포트를 만들고 있습니다');
     $('confirm-end').disabled = $('cancel-end').disabled = true;
-    $('end-status').textContent = '채점 중… 약 1~3초 걸립니다.';
+    $('end-status').textContent = MOCK ? '채점 중… 약 1~3초 걸립니다.' : '채점 중… 문제 수에 따라 몇 분 걸릴 수 있습니다.';
     try {
       const result = await api.endExam(); exam.ended = true; eventLog.append('end'); clearInterval(timer);
       const elapsed = window.ExamLog.timing(eventLog.events).elapsed;
       $('actual-time').textContent = `실제 사용 시간: ${Math.floor(elapsed / 60)}분 ${Math.floor(elapsed % 60)}초 (자리 비운 시간 제외)`;
       $('score').textContent = `${result.total}%`;
-      $('result').textContent = result.passed ? '합격 (목업)' : '불합격 (목업)';
+      $('result').textContent = (result.passed ? '합격' : '불합격') + (MOCK ? ' (목업)' : '');
       $('report-rows').replaceChildren();
       const domains = new Map();
       for (const p of result.problems) {
@@ -246,10 +251,10 @@
       $('weaknesses').replaceChildren();
       for (const [name, d] of domains) {
         const line = document.createElement('p'); const ratio = Math.round(d.score / d.weight * 100);
-        line.textContent = `${name} · ${ratio}% — ${ratio < 66 ? '추가 연습이 필요한 도메인입니다.' : '예시 기준으로 안정적인 도메인입니다.'}`;
+        line.textContent = `${name} · ${ratio}% — ${ratio < 66 ? '추가 연습이 필요한 도메인입니다.' : (MOCK ? '예시 기준으로 안정적인 도메인입니다.' : '안정적인 도메인입니다.')}`;
         $('weaknesses').append(line);
       }
-      $('end-dialog').close(); screen('report'); notice('목업 데이터 · 실제 채점 결과가 아닙니다.');
+      $('end-dialog').close(); screen('report'); notice(MOCK ? '목업 데이터 · 실제 채점 결과가 아닙니다.' : `리포트: ${result.path || '.cka/exam-report-*.md'}`);
       $('report').tabIndex = -1; $('report').focus();
     } catch (error) { $('end-status').textContent = `${error.message} 다시 시도하세요.`; }
     finally { setBusy(false); $('confirm-end').disabled = $('cancel-end').disabled = false; }

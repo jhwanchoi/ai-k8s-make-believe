@@ -88,6 +88,10 @@ window.TerminalWorkspace = class {
   }
   keydown(event, t, form) {
     if (event.isComposing) return;
+    // Tab completes like bash (Shift+Tab still moves focus)
+    if (event.key === 'Tab' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && window.Completion) {
+      event.preventDefault(); this.tabComplete(t); return;
+    }
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); }
     if (['ArrowUp', 'ArrowDown'].includes(event.key) && !event.shiftKey && !event.altKey && !t.view.input.value.includes('\n') && t.history.length) {
       event.preventDefault();
@@ -95,6 +99,18 @@ window.TerminalWorkspace = class {
       t.historyIndex = Math.max(0, Math.min(t.history.length, t.historyIndex + (event.key === 'ArrowUp' ? -1 : 1)));
       t.draft = t.historyIndex === t.history.length ? t.savedDraft : t.history[t.historyIndex]; t.view.input.value = t.draft;
     }
+  }
+  // Paths and names come from the current problem state (/api/complete), fetched once per host until the next command.
+  async tabComplete(t) {
+    const input = t.view.input, host = t.host;
+    if (!t.completion || t.completion.host !== host) {
+      let data = {};
+      try { data = this.api.complete ? await this.api.complete({host}) : {}; } catch { data = {}; }
+      t.completion = {host, data};
+    }
+    const r = window.Completion.complete(input.value, input.selectionStart, t.completion.data);
+    input.value = t.draft = r.text; input.setSelectionRange(r.cursor, r.cursor);
+    t.view.note.textContent = r.candidates.join('   ');
   }
   splitResponse(markdown) {
     const blocks = [];
@@ -104,6 +120,20 @@ window.TerminalWorkspace = class {
   applyResponse(t, response) {
     const headers = window.TerminalWorkspace.prototype.splitResponse(response).blocks.map(block => block.split('\n')[0].match(/^# \[SIM\] host=(\S+) ctx=(\S+)$/)).filter(Boolean);
     if (headers.length) { t.host = headers.at(-1)[1]; this.state.contexts[t.host] = headers.at(-1)[2]; }
+  }
+  // Show it like a real terminal: drop "# [SIM] host= ctx=" headers (kept in the response for host tracking) and the
+  // "$ <typed command>" echo; any other "$ " line (multi-line input) becomes a prompt line.
+  screenText(text, entry) {
+    const typed = entry.text.split('\n').map(l => l.trim()), out = [];
+    let echo = -1;
+    for (const line of text.split('\n')) {
+      if (/^# \[SIM\] host=\S+ ctx=\S+$/.test(line)) continue;
+      if (echo === -1 && line.startsWith('$ ') && line.slice(2).trim() === typed[0]) { echo = 1; continue; }
+      if (echo > 0 && echo < typed.length && line.replace(/^> /, '').trim() === typed[echo]) { echo++; continue; }
+      if (echo > 0) echo = typed.length;
+      out.push(line.startsWith('$ ') ? `root@${entry.host}:~# ${line.slice(2)}` : line);
+    }
+    return out.join('\n').trim();
   }
   contextFor(host) { return this.state.contexts[host] ?? this.state.defaultContext; }
   renderHeader(t) {
@@ -118,12 +148,9 @@ window.TerminalWorkspace = class {
     const v = t.view, follow = v.output.scrollHeight - v.output.scrollTop - v.output.clientHeight < 70;
     this.renderHeader(t);
     v.output.replaceChildren();
-    if (!t.entries.length) {
-      const welcome = document.createElement('pre'); welcome.textContent = `# [SIM] host=${t.host} ctx=${this.contextFor(t.host)}\nVirtual terminal ready. No real commands are executed.`; v.output.append(welcome);
-    }
     t.entries.forEach((entry, i) => {
-      const command = document.createElement('pre'); command.className = 'input-line'; command.textContent = `root@${entry.host}:~# ${entry.text}`;
-      const response = this.splitResponse(entry.response), output = document.createElement('pre'); output.textContent = response.console;
+      const command = document.createElement('pre'); command.className = 'input-line'; command.textContent = `root@${entry.host}:~# ${entry.text.split('\n').join('\n> ')}`;
+      const response = this.splitResponse(entry.response), output = document.createElement('pre'); output.textContent = this.screenText(response.console, entry);
       v.output.append(command, output);
       if (response.note && i < t.entries.length - 1) { const note = document.createElement('div'); note.className = 'response-note'; note.textContent = response.note; v.output.append(note); }
     });
@@ -148,7 +175,7 @@ window.TerminalWorkspace = class {
         t.phase = 'running'; t.status = 'Claude 응답 대기 중'; this.renderStatus(t);
         const started = Date.now();
         const interval = setInterval(() => { t.status = `Claude 응답 대기/수신 중 · ${Math.floor((Date.now() - started) / 1000)}초 경과`; this.renderStatus(t); }, 1000);
-        const entry = {text, host: t.host, response: ''}; t.entries.push(entry); t.history.push(text); t.historyIndex = t.history.length; this.render(t);
+        t.completion = null; const entry = {text, host: t.host, response: ''}; t.entries.push(entry); t.history.push(text); t.historyIndex = t.history.length; this.render(t);
         try {
           for await (const delta of this.api.cmd({text, terminal: t.n, host: t.host})) { entry.response += delta; this.render(t); }
           this.applyResponse(t, entry.response); this.onWindows();
