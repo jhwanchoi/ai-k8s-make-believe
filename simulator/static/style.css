@@ -93,17 +93,20 @@ small{font-size:12px;color:#566675}
 .terminal-head strong{font-weight:500;overflow-wrap:anywhere}
 .terminal-context{color:#c5d1d5;font-size:10px}
 .terminal-head button{margin-left:auto;padding:2px 5px;font-size:10px;background:#555a62;color:#fff;border-color:#777}
-.terminal{flex:1;min-height:30px;overflow:auto;padding:10px 12px;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
-.terminal pre{font:inherit;white-space:pre-wrap;margin:0 0 16px}
-.terminal .input-line{color:#75e68f}
+.terminal-scroll{flex:1;min-height:30px;overflow:auto;padding:10px 12px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;cursor:text}
+.terminal{white-space:pre-wrap;overflow-wrap:anywhere;outline:0}
+.terminal pre{font:inherit;white-space:pre-wrap;margin:0}
+.terminal .input-line{color:#eee}
+.terminal .prompt{color:#75e68f}
 .response-note{font-size:11px;background:#23272b;color:#cbd2d6;padding:7px 12px;white-space:pre-wrap;max-height:70px;overflow:auto}
 .response-note:empty{display:none}
-.terminal-status{padding:4px 12px;color:#b8c4c8;font-size:11px}
+.terminal-status{color:#8b979d;font-size:11px}
+.terminal-status:empty{display:none}
 .terminal-status.busy::before{content:'● ';color:#75e68f}
-.terminal-form{padding:0 12px 8px;display:flex;flex-wrap:wrap;gap:5px;flex-shrink:0}
-.terminal-form label{color:#75e68f;font:12px monospace;width:100%;margin:0}
-.terminal-form textarea{width:100%;background:#080808;border-color:#444;color:#eee;font:12px/1.5 monospace;min-height:40px;max-height:120px;padding:5px}
-.terminal-form button{margin-left:auto;font-size:11px;padding:4px 8px;background:#333;color:#ddd;border-color:#555}
+.terminal-form{display:flex;align-items:flex-start;margin:0}
+.terminal-pane.running .terminal-form{display:none}
+.terminal-form label{color:#75e68f;font:inherit;margin:0 .6ch 0 0;white-space:pre;flex:none}
+.terminal-form textarea{flex:1;min-width:0;height:1.5em;background:transparent;border:0;outline:0;color:#eee;font:inherit;padding:0;margin:0;resize:none;overflow:hidden;caret-color:#eee}
 .terminal-divider{background:#8a8e94;cursor:row-resize;touch-action:none}
 .terminal-divider:hover,.terminal-divider:focus-visible{background:#6edc92}
 .key-help{font-size:10px;color:#c0c7cb;padding:5px 8px;background:#292d32}
