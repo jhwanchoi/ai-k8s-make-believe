@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """시뮬레이터 웹 화면의 실서버: simulator/static 을 열고, UIUX.md 의 API 를 백그라운드 Claude Code 세션으로 처리한다.
 
-명령·출제·이동·제출·종료는 연습 폴더를 cwd 로 `claude -p --plugin-dir <repo>` 를 실행해 플러그인 커맨드로 보낸다.
-세션은 시험 하나에 하나(--resume)이고, 요청은 한 번에 하나만 처리한다. 127.0.0.1 에만 연다.
+명령(/api/cmd)은 `claude -p` 단발 호출(도구 없음, cmd-prompt.md)로 출력과 상태 변경을 받고, 서버가 state.json 에 적용한다.
+출제·이동·제출·종료는 연습 폴더를 cwd 로 `claude -p --plugin-dir <repo> --resume` 플러그인 세션(시험 하나에 하나)으로 보낸다.
+요청은 한 번에 하나만 처리한다. 127.0.0.1 에만 연다. 사용자 전역 설정은 읽지 않는다(--setting-sources project,local).
 풀이(<name>.answers.md)와 환경(<name>.setup.md), answer-key 는 시험이 끝나기 전에 브라우저로 보내지 않는다.
 
-Usage: server.py [--practice ~/cka-practice] [--port 8765] [--model sonnet] | --selftest
+Usage: server.py [--practice ~/cka-practice] [--port 8765] [--model sonnet] [--browser-url http://127.0.0.1:5800/] | --selftest
 표준 라이브러리만 사용한다.
 """
 import argparse

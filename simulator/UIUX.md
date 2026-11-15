@@ -1,6 +1,75 @@
-# CKA 정적 프로토타입 UI/UX
+# CKA 시뮬레이터 UI/UX
 
-이 문서는 `.claude/plan.md` §2·3·4·6·7을 구현하는 화면 설계다. 서버, Claude 세션, 상태 계산, grader 연동은 없다. 모든 출력과 점수는 목업이다. 외부 라이브러리 없이 정적 HTTP 서버로 연다.
+## 0. 컨셉
+
+실제 CKA 시험 화면을 그대로 연습한다. 실제 시험은 PSI 전용 브라우저 안에서 왼쪽에 문제 패널, 오른쪽에 원격 Linux 데스크톱(터미널과 진짜 Firefox)을 보여 준다. 이 화면도 같은 배치를 쓰되 클러스터는 없다. 터미널 명령의 결과와 상태 변화는 Claude 가 문제마다의 가상 상태(`.cka/<id>/state.json`)로 계산하고, 채점은 플러그인 grader 가 루브릭으로 한다. 서버(`simulator/server.py`) 없이 정적으로 열면 고정 응답을 내는 **정적 목업 모드**로 동작한다.
+
+원칙
+
+- **실제와 같게.** 프롬프트, 출력 형식, 에러 문구, 단축키, 문서 브라우저 동작을 실제 시험 환경(Linux 터미널 · bash · Firefox)에 맞춘다. 시뮬레이터라서 생기는 표시(`# [SIM]` 머리줄, 명령 반복)는 응답에 남기되 화면에는 그리지 않는다.
+- **기다림을 보여 준다.** Claude 호출은 명령 수 초, 출제 1~2분이 걸린다. 시작 진행 표시와 터미널 경과 초로 멈춘 것이 아님을 알린다. Claude 가 필요 없는 일(오타, Tab 자동완성, 목록, 차시 기록)은 즉시 처리한다.
+- **정답은 끝나기 전에 보이지 않는다.** 풀이 · 환경 파일 · answer-key 는 시험이 끝나기 전 브라우저 응답, DOM, localStorage 어디에도 넣지 않는다. 명령을 처리하는 Claude 호출에도 넣지 않는다.
+- **상태는 파일에 있다.** 시험 · 문제 · 기록은 연습 폴더 `.cka/` 에 있어서 서버를 다시 띄워도 이어진다.
+
+## 구조
+
+```mermaid
+flowchart LR
+  UI["브라우저 화면<br/>app.js · terminal-ui.js<br/>server-api.js"] -- "HTTP · SSE<br/>127.0.0.1 전용" --> S["simulator/server.py"]
+  UI -. "오타: command-check.js<br/>(Claude 없이 즉시)" .-> UI
+  S -- "명령 /api/cmd<br/>claude -p 단발 · 도구 없음<br/>cmd-prompt.md" --> C1["Claude<br/>&lt;output&gt; + &lt;changes&gt;"]
+  C1 -- "output 은 바로 SSE,<br/>changes 는 서버가 검증 · 적용" --> F[(".cka/<br/>state.json · history.md<br/>exam.json · archive/")]
+  S -- "출제 · 이동 · 제출 · 종료<br/>claude -p --resume" --> P["플러그인 세션<br/>cka-exam · cka-submit<br/>grader · reviewer"]
+  P --> F
+  S -- "목록 · 원문 · 차시 · Tab 자동완성<br/>(파일 직접 읽기)" --> F
+  UI -- "Firefox 창 iframe" --> B["Docker cka-firefox<br/>jlesage/firefox 웹 VNC<br/>policies.json"]
+```
+
+- 명령은 Claude 를 한 번만 부른다. 입력은 cmd-prompt.md(규칙) + problem.md + state.json + 최근 기록 + 해당 kubectl 색인 + `# terminal=<n> host=<host>` + 명령이다. 응답의 `<output>` 은 받는 대로 화면에 흘리고, `<changes>` 는 서버가 `clusters` · `hosts` · `meta` 아래인지 검증해 state.json 에 원자적으로 적용하고 cmd_count · history 를 기록한다. 이유: 도구 왕복 없이 명령당 2~5초로 줄이고, 상태 변경을 코드가 기록한다.
+- 출제 · 문항 이동 · 제출 · 종료는 시험마다 하나인 플러그인 세션(`--resume`)이 맡는다. 서버는 headless 라 묻는 대신 리뷰 이상을 "무시"로 처리하고 결과만 남긴다. 이유: 정답을 보는 일은 grader 서브에이전트에 격리한다.
+- Claude 호출은 사용자 전역 설정을 읽지 않는다(`--setting-sources project,local`). 플러그인 guard 훅은 그대로 동작한다. 요청은 한 번에 하나다.
+- 서버를 `--browser-url` 과 띄우면 화면 안 Firefox 창이 Docker 컨테이너의 진짜 Firefox 화면을 보여 준다(§2-1).
+
+| HTTP | JS (`window.MockAPI`) | 하는 일 |
+|---|---|---|
+| GET /config.js | — | 서버 모드 표시(`SIM_SERVER`), 연습 폴더(`SIM_PRACTICE`), 문서 브라우저 주소(`SIM_BROWSER`) |
+| GET /api/exams | serverCatalog() | 연습 폴더 exams/ 목록(문항 수 · 풀이 유무 · 차시 수) |
+| GET /api/exam-file?name= | serverCatalog() | 문제 원문만. 풀이 · 환경 파일, 경로 이탈은 404 |
+| GET /api/attempts | attempts() | `.cka/exam-attempts.jsonl` 차시 기록 |
+| GET /api/exam | getExam() | 진행 중 시험 요약 또는 null (이어 풀기 판단) |
+| GET /api/complete?host= | complete({host}) | Tab 자동완성용 가상 파일 경로 · 객체 이름 · 노드 |
+| POST /api/exam/start {file, answers, minutes} | startExam() | 플러그인 `cka-exam start`, 1번 문제 출제 |
+| POST /api/cmd {text, terminal, host, local_output?} → SSE | cmd() | 명령 한 번 처리. `local_output` 이면 Claude 없이 기록만 |
+| POST /api/exam/goto {n} | gotoExam() | 플러그인 `cka-exam goto` |
+| POST /api/submit | submit() | 플러그인 `cka-submit` (모의고사는 "제출 기록됨"만) |
+| POST /api/exam/end | endExam() | 플러그인 `cka-exam end`, 리포트 · 풀이(이때만) |
+
+POST 는 `X-Sim: 1` 헤더와 Host 가 127.0.0.1/localhost 인 요청만 받는다. 이유: 다른 사이트가 브라우저를 통해 로컬 서버를 부르지 못하게 한다.
+
+## 터미널
+
+- 실제 터미널처럼 마지막 출력 바로 아래 줄의 `root@<host>:~# ` 뒤에서 입력한다. 입력 상자 테두리 · 실행 버튼 · 안내 문구는 없다. 터미널 화면 아무 곳이나 누르면 입력으로 간다(글자를 고르는 중이면 그대로). 프롬프트는 초록, 명령과 출력은 흰색. 입력 줄은 내용만큼 늘어난다. 이유: 실제 시험 터미널과 같은 시선 흐름.
+- Enter 는 실행한다. 단 bash 처럼 입력이 끝나지 않았으면(닫히지 않은 heredoc, 줄 끝 `\`, 닫히지 않은 따옴표) 줄바꿈하고 다음 줄은 `> ` 로 이어 보여 준다. Shift+Enter 도 줄바꿈이다. 빈 Enter 는 새 프롬프트만 찍는다. IME 조합 중 Enter 는 실행하지 않는다.
+- 실행 중에는 프롬프트를 숨기고 경과 초를 보여 준다. `clear` 와 Ctrl+L 은 화면만 지운다(명령을 보내지 않는다).
+- Tab 은 bash 처럼 완성한다: 명령 이름, kubectl 하위 명령 · 플래그(공식 v1.37 색인), 리소스 종류와 이름, `-n` 뒤 네임스페이스, `-f` 뒤 · 일반 경로(`~` 는 /root). 하나면 채우고, 여럿이면 공통 부분까지 채운 뒤 후보를 아래에 보여 준다. 경로와 이름은 `/api/complete` 로 현재 문제 state.json 에서 가져오고 명령을 실행할 때마다 새로 읽는다. Claude 를 부르지 않는다.
+- 없는 명령 · kubectl 하위 명령 · 플래그는 브라우저 command-check 가 실제 형식 에러(`kbuectl: command not found`, `error: unknown flag: --foo`)로 즉시 답하고 서버는 기록만 한다. kubectl 색인에 별칭이 없어 `create deploy` 처럼 확신할 수 없는 경우는 판정하지 않고 Claude 에 보낸다.
+
+| 키 | 동작 |
+|---|---|
+| Enter / Shift+Enter | 실행 / 줄바꿈 (위 이어 쓰기 규칙) |
+| Tab | 자동완성 |
+| ↑ ↓ | 명령 이력 (한 줄일 때), 끝에서 작성 중 초안으로 |
+| Ctrl+Shift+C / Ctrl+Shift+V | 복사 / 붙여넣기 (실제 시험 안내와 같음). Mac 은 Cmd+C/V 도 됨 |
+| Ctrl+C | 입력 취소, `^C` 표시 후 새 프롬프트 |
+| Ctrl+L, `clear` | 화면 지우기 |
+| Ctrl+U / Ctrl+K / Ctrl+W | 줄 처음까지 / 줄 끝까지 / 앞 단어 지우기 |
+| Ctrl+A / Ctrl+E | 줄 처음 / 끝으로 |
+| Ctrl+D | 빈 줄이면 `exit`, 아니면 커서 글자 지우기 |
+| Alt+← / Alt+→ | 이전 / 다음 문항 (입력에 포커스가 없을 때) |
+| Alt+Shift+T | 터미널 1 ↔ 2 전환 |
+| Shift+Tab | 포커스 이동 (Tab 은 자동완성이 씀) |
+
+이유: Windows 에서 Ctrl+C 는 원래 복사지만, 실제 시험 Linux 터미널처럼 취소로 쓴다. `^C` 와 `clear` 는 화면에만 남는 동작이라 이어 풀기 때 다시 그리지 않는다.
 
 ## 1. 시작 화면
 
@@ -11,7 +80,7 @@
 - 폴더 흐름에서는 풀이 파일을 자동 연결한다. “파일 직접 고르기”에서는 풀이 파일(선택, `.answers.md`)을 문제 파일 아래에서 별도로 고른다. `# 제목`·머리말 뒤 `## Q<n>`마다 bash 블록과 `(원본: [이름](URL))`을 파싱하며 내용 대신 문항 개수만 미리 보여 준다. 문제와 개수가 다르면 경고하고 시작은 허용한다. 잘못된 형식은 이유를 안내하고 풀이 없이 시작할 수 있다. 이유: 파일 짝을 확인하면서 부분 풀이도 사용할 수 있다.
 - 예시 시작은 풀이를 고른 상태여도 항상 풀이 없이 시작한다. 이유: 기존 예시 흐름을 유지한다.
 - 예시 시작은 mock-api.js에 내장한 `examples/mock-01.md` 복사본을 쓴다. 원본 변경 시 복사본도 갱신해야 한다. 이유: 지정된 static 루트만 제공해도 예시를 불러온다.
-- 시작 요청 중 문제·풀이 파일 선택과 시작 버튼을 잠그고 1~3초 준비 안내를 표시한다. 오류는 상단에 남기고 폼을 다시 활성화한다. 이유: 중복 시작을 막고 재시도 경로를 유지한다.
+- 시작 요청 중 문제·풀이 파일 선택과 시작 버튼을 잠그고, 버튼 바로 아래에 회전 표시와 경과 초("Claude 가 1번 문제 환경을 만드는 중 · 37초 (보통 1~2분)")를 보여 준다. 오류는 상단에 남기고 폼을 다시 활성화한다. 이유: 1~2분 걸리는 출제를 멈춤으로 오해하지 않고, 중복 시작을 막는다.
 
 ## 2. 시험 화면: Question + 데스크톱
 
@@ -26,21 +95,29 @@
 - Firefox는 처음 닫혀 있다. Applications → Firefox 또는 작업 표시줄 Firefox 버튼으로 열면 터미널 오른쪽 열에 나타난다. 닫으면 터미널이 데스크톱 전체 폭을 쓴다. 문항 이동·닫기 후 다시 열기는 문서 위치를 보존하고 새 시험에서는 닫힌 상태로 시작한다. 이유: 응시자가 필요할 때 문서를 직접 연다.
 - Firefox는 제목·새 창으로·닫기, 탭 하나, 주소창과 ← → ⟳, 공식 문서 iframe 하나로 구성한다. 첫 주소는 `https://kubernetes.io/docs`다. 시뮬레이터와 출처(location.origin)가 다른 http/https 주소만 Enter로 이동하며 사이트 바로가기 탭·문항별 문서 추천은 제공하지 않는다. 이유: 응시자가 직접 주소·검색·링크를 찾아 쓰는 흐름을 유지한다.
 - 터미널 | Firefox 경계는 기본 50:50이며 드래그나 좌우 화살표로 조절한다. 터미널 1 | 2는 위아래 경계를 유지한다. 최소 폭·높이보다 좁은 화면은 스크롤을 제공한다. 이유: 세 경계를 독립적으로 조절하면서 창의 조작 영역을 보장한다.
-- 시작 화면과 Exam Information에 허용 문서 네 곳(kubernetes.io/docs, kubernetes.io/blog, helm.sh/docs, gateway-api.sigs.k8s.io)을 글로 알리고 “kubernetes.io 검색은 되지만 외부 검색 결과는 열 수 없습니다”를 표시한다. 외부 이동은 강제 차단하지 않는다. 이유: 규칙 안내와 응시자의 문서 선택 책임을 유지한다.
+- 시작 화면과 Exam Information에 허용 문서 네 곳(kubernetes.io/docs, kubernetes.io/blog, helm.sh/docs, gateway-api.sigs.k8s.io)을 글로 알리고 “kubernetes.io 검색은 되지만 외부 검색 결과는 열 수 없습니다”를 표시한다. iframe 모드에서는 외부 이동을 강제 차단하지 않고, Firefox 스트리밍 모드에서는 Firefox 정책이 차단한다(§2-1). 이유: 규칙 안내와 응시자의 문서 선택 책임을 유지한다.
 - [↗ 새 창으로]는 주소창의 마지막 이동 주소를 `window.open(url, 'cka-docs')`로 연다. 같은 주소의 열린 창은 focus로 가져오고 주소가 바뀌면 같은 이름의 창에 새 주소를 연다. 열린 창의 opener를 null로 설정하며 폴백 링크에도 rel="noopener"를 둔다. 차단되면 대체 링크를 표시한다. 이유: 실제 브라우저 기능이나 별도 모니터를 이용할 수 있게 한다.
 - 시작 화면에는 “브라우저 창은 다른 모니터로 옮기거나 옆에 붙여 쓰세요. 실제 시험은 모니터 하나만 허용됩니다.”를 유지한다. 이유: 연습 배치와 실제 시험 제약을 함께 알린다.
 
-### Firefox의 브라우저 보안 한계
+### Firefox iframe 모드의 브라우저 보안 한계
 
 iframe 내부 링크로 이동한 주소는 교차 출처이므로 주소창·제목에 반영할 수 없다. 주소창·새 창으로·대체 링크는 마지막으로 입력해 이동한 주소를 쓴다. ← →는 이 창에서 직접 입력·이동한 주소 스택의 인덱스를 바꾸고 iframe src를 갱신한다. 뒤로 간 뒤 새 주소를 입력하면 앞으로 기록을 지운다. iframe 내부 링크 이동은 주소 스택에 기록할 수 없으며, 부모 페이지의 history는 호출하지 않는다. ⟳는 주소 스택의 현재 주소를 다시 불러온다. iframe 차단 헤더·네트워크 오류는 읽을 수 없으므로 로드 이벤트도 표시 성공을 보증하지 않는다고 안내한다. 이유: 실제 브라우저와 동일한 동작으로 오해하지 않도록 한계를 드러내고 시험 페이지 이탈을 피한다.
+
+### 2-1. Firefox 스트리밍 모드 (권장)
+
+- iframe 모드에서는 kubernetes.io 검색 결과를 클릭해도 열리지 않는다. 결과 링크가 `target=_parent`(감싼 창을 이동)라서 sandbox 가 막고, 막지 않으면 시험 화면 전체가 문서로 바뀐다. 다른 출처 페이지라 링크를 고칠 수도 없다.
+- 그래서 실제 시험처럼 따로 도는 진짜 Firefox 의 화면을 보여 준다. Docker 컨테이너 `cka-firefox`(jlesage/firefox, 웹 VNC, 127.0.0.1:5800)를 띄우고 서버를 `--browser-url http://127.0.0.1:5800/` 로 열면 Firefox 창이 그 화면을 iframe 으로 보여 주고, 우리 주소창 · ← → ⟳ · 새 창 · 상태줄 · 가짜 탭은 숨긴다(진짜 Firefox 것을 쓴다). 옵션이 없으면 iframe 모드 그대로다.
+- 스트리밍 주소에 `resize=remote` 를 붙여 원격 화면 크기를 Firefox 창 크기에 맞춘다. 이유: 웹 VNC 는 창이 원격 화면보다 좁으면 축소 모드가 돼 글자가 작아진다.
+- `simulator/firefox/policies.json` 의 WebsiteFilter 로 kubernetes.io docs · blog · search, helm.sh/docs, gateway-api.sigs.k8s.io 만 열고 나머지는 Firefox 차단 화면을 띄운다. 컨테이너에서 Google 을 막아 두면 kubernetes.io 가 자체 검색(Pagefind)을 써서 검색 결과가 같은 탭에서 열린다. 이유: 실제 시험의 허용 리소스 정책과 같게 한다.
+- 실행 방법은 README "문서 브라우저(진짜 Firefox)" 를 따른다. 한글 입력과 클립보드 공유는 웹 VNC 를 거친다.
 
 ## 3. CLI와 상태
 
 - 프롬프트는 `root@<host>:~#`이며 문항 × 터미널별 기록·이력·입력 초안을 메모리에 분리한다. 3~4 backtick console 블록 각각의 첫 줄 `[SIM] host=… ctx=…`만 읽고 마지막 유효 머리줄을 반영한다. 명령 에코나 일반 본문은 머리줄로 해석하지 않는다. 이유: 문항 이동 후 작업 맥락과 입력을 복원한다.
-- Enter는 실행, Shift+Enter는 줄바꿈이다. IME 조합 중 Enter는 제출하지 않는다. 단일 행에서 ↑↓는 이력을 탐색하고 끝에서 작성 중 초안으로 복귀한다. 다중 행에서는 커서 이동을 유지한다. 이유: 한국어 입력과 YAML 편집을 방해하지 않는다.
+- 입력 · Enter · 단축키 · Tab 자동완성은 위 "터미널" 절을 따른다. 다중 행에서 ↑↓는 커서 이동을 유지한다. 이유: 한국어 입력과 YAML 편집을 방해하지 않는다.
 - Alt+←/→는 이전·다음 문항이다. textarea·input·select에 포커스가 있으면 문항 이동을 건너뛴다. 문항 select에도 플래그를 표시한다. 이유: 키보드 탐색과 보류 문항 재방문을 빠르게 한다. 브라우저·OS 단축키 충돌 시 버튼을 사용한다.
 - 명령 요청 중에는 해당 터미널만 입력·실행·닫기를 잠그고 경과 초와 대기/수신 상태를 표시한다. 다른 터미널은 입력과 실행 예약이 가능하다. 문항 이동·제출·종료는 전체 명령 큐가 비워질 때까지 잠근다. 입력 텍스트는 성공까지 보존한다. 이유: 수 초의 Claude 응답을 멈춤으로 오해하지 않고 재시도할 수 있다.
-- 스트리밍 중에는 받은 문자열을 점진적으로 표시한다. 완성된 console 펜스의 내용은 터미널에, 나머지 설명은 아래 회색 보조 줄에 표시한다. 이전 응답의 설명은 해당 기록 아래 남긴다. console 블록이 없으면 전체를 터미널에 표시한다. 이유: 계획 §7의 형식 변동 대응과 `(추정)` 안내를 보존한다.
+- 스트리밍 중에는 받은 문자열을 점진적으로 표시한다. 완성된 console 펜스의 내용은 터미널에, 나머지 설명은 아래 회색 보조 줄에 표시한다. console 블록이 없으면 전체를 터미널에 표시한다. 펜스 첫 줄 `# [SIM] host= ctx=` 와 입력한 명령의 `$ ` 반복 줄은 host 추적에만 쓰고 화면에는 그리지 않는다. 다른 `$ ` 줄(여러 줄 입력)은 프롬프트 줄로 바꿔 그린다. 서버 모드의 명령 응답은 터미널 출력만 담는다. 이유: 실제 터미널과 같은 화면을 유지하면서 응답 형식은 플러그인과 같게 둔다.
 - 터미널은 하단을 보고 있을 때만 자동 스크롤한다. 이유: 과거 출력을 읽는 동안 새 응답이 화면을 빼앗지 않는다.
 - 연결 오류는 기록과 상단에 표시하고 입력을 유지한다. 자동 재전송은 하지 않는다. 이유: 실제 연결로 교체할 때 변경 명령의 중복 적용을 피한다.
 - 남은 시간은 `minutes × 60 - pause를 제외한 실제 경과 초` 하나로 계산하고 UI와 목업 API 입력 차단에 함께 쓴다. `ends_at`은 조회 시 이 남은 시간에서 다시 계산한 호환용 시각이다. 10분 이하는 황색, 5분 이하는 적색이며 0에서는 즉시 잠근다. 이유: 별도 카운터의 시간 오차를 피한다.
@@ -66,11 +143,11 @@ iframe 내부 링크로 이동한 주소는 교차 출처이므로 주소창·�
 
 ## 6. API 교체 경계와 체험
 
-모든 API 요청은 `window.MockAPI`에만 있다. app.js는 fetch나 서버 파일을 직접 읽지 않는다. 문항 파싱과 예시 파일 취득도 같은 파일의 로컬 유틸리티다. 반환 데이터는 exam.json의 `started_at`, `ends_at`, `current`, `problems`를 유지하고 표시용 host/기본 context/host별 contexts/title, 문항별 visited와 목업 state의 meta.submitted를 추가한다. 방문·제출 상태는 새 시험마다 초기화하며 이어 풀기에서는 이벤트에서 복원한다.
+모든 API 요청은 `window.MockAPI`에만 있다. 서버 모드에서는 `server-api.js`가 같은 이름의 메서드를 fetch · SSE 구현으로 바꿔 끼운다(실서버 API 표는 위 "구조" 절). app.js는 fetch나 서버 파일을 직접 읽지 않는다. 문항 파싱과 예시 파일 취득도 같은 파일의 로컬 유틸리티다. 반환 데이터는 exam.json의 `started_at`, `ends_at`, `current`, `problems`를 유지하고 표시용 host/기본 context/host별 contexts/title, 문항별 visited와 목업 state의 meta.submitted를 추가한다. 방문·제출 상태는 새 시험마다 초기화하며 이어 풀기에서는 이벤트에서 복원한다.
 
 | HTTP 계약 | JS 계약 | 반환 |
 |---|---|---|
-| GET /api/exam | getExam() | Promise<시험 요약 또는 null> (UI 미사용, 실서버 복원용 계약) |
+| GET /api/exam | getExam() | Promise<시험 요약 또는 null> (서버 모드에서 이어 풀기 판단에 사용) |
 | POST /api/exam/resume {log, answers?} | resumeExam({log, answers}) | Promise<exam, questions, preferences, timing> |
 | POST /api/exam/start {file, answers, minutes} | startExam({file, answers, minutes}) | Promise<시험 요약> |
 | POST /api/cmd {text, terminal, host} → SSE | cmd({text, terminal, host}) | AsyncIterable<마크다운 문자열 델타> |
@@ -80,7 +157,7 @@ iframe 내부 링크로 이동한 주소는 교차 출처이므로 주소창·�
 
 `file`과 선택적인 `answers`는 정적 프로토타입에서 `{name, text}`다. `answers`를 생략하거나 null로 보내면 풀이 없이 시작한다. 실제 서버 어댑터가 업로드·경로를 해결해야 한다. 종료 응답은 리포트 경로와 렌더링용 요약을 함께 준다. 실제 SSE 연결도 같은 델타 iterator로 변환하면 UI 파일을 바꾸지 않는다. 목업은 1~3초 기다린 후 약 45ms 간격으로 응답을 나눈다.
 
-`demo-error`, `demo-plain`, `demo-mixed`로 오류·console 없음·여러 console 블록을 체험한다. 1분 시험으로 시간 만료를 확인한다. 목업은 Kubernetes 해석기가 아니므로 명령과 문항에 상관없이 일부 조회 패턴에만 고정 영어 출력을 돌려준다.
+정적 목업 모드: `demo-error`, `demo-plain`, `demo-mixed`로 오류·console 없음·여러 console 블록을 체험한다. 1분 시험으로 시간 만료를 확인한다. 목업 셸(mock-shell.js)은 상태를 계산하지 않고, 빈 기본 클러스터(기본 네임스페이스 · 노드 2개 · kube-system Pod)를 가정해 실제 kubectl · bash 형식의 출력과 에러를 낸다. 아무것도 기억하지 않으므로 `create` 한 리소스는 다음 `get` 에 보이지 않는다.
 
 
 
@@ -95,7 +172,7 @@ iframe 내부 링크로 이동한 주소는 교차 출처이므로 주소창·�
 - UI의 FIFO 큐가 명령을 한 번에 하나만 API로 보낸다. 실행 중인 터미널과 대기 명령을 보낸 터미널은 각자 잠기며, 대기 터미널에는 “대기 중”을 표시한다. 응답 완료가 다른 터미널의 포커스를 가져오지 않는다. 이유: 한 Claude 세션의 요청 직렬화를 지키면서 다른 터미널에서 다음 명령을 작성한다.
 - 시간이 만료되면 실행 중 응답은 마무리하고 대기 명령은 전송하지 않으며 초안을 보존한다. 큐가 정리된 뒤 리포트 종료를 허용한다. 이유: 종료 시각 이후의 변경 명령을 새로 실행하지 않는다.
 
-API 계약: `cmd({text, terminal, host})`의 terminal은 1 또는 2, host는 그 터미널의 현재 host다. 실제 서버 어댑터는 Claude에 보낼 명령 앞에 `# terminal=<n> host=<host>` 머리줄을 붙인다. 예: `# terminal=2 host=node01` 다음 줄에 `$ kubectl get pods`. 이후 서버·플러그인은 이 머리줄에 맞춰 실행 전 meta.host를 조정해야 한다. 이번 프로토타입에서는 계약과 목업만 구현하고 plan.md·플러그인은 수정하지 않는다. 이유: 단일 meta.host를 쓰는 기존 플러그인과 터미널별 host를 연결할 경계를 고정한다.
+API 계약: `cmd({text, terminal, host})`의 terminal은 1 또는 2, host는 그 터미널의 현재 host다. 서버는 Claude에 보낼 명령 앞에 `# terminal=<n> host=<host>` 머리줄을 붙이고, 명령 처리 지침(cmd-prompt.md)과 cka-rules 스킬은 실행 전 meta.host를 이 값으로 맞춘다. 응답 뒤 서버가 새 host · ctx 만 담은 빈 console 블록을 하나 더 보내므로 ssh · exit 로 바뀐 host가 화면에 반영된다. 이유: 단일 meta.host를 쓰는 플러그인과 터미널별 host를 잇는다.
 
 상단·Applications 메뉴는 기본 details/summary로 키보드 조작이 가능하며 Escape와 바깥 클릭으로 닫힌다. 이유: 작은 목업에서 별도 메뉴 프레임워크 없이 포커스 가능한 조작을 제공한다.
 
@@ -103,15 +180,15 @@ API 계약: `cmd({text, terminal, host})`의 terminal은 1 또는 2, host는 그
 
 `parseAnswers(text)`는 파일 선택 시에만 호출하는 로컬 파싱 유틸리티이며 네트워크 API 응답이 아니다. 선택 파일은 메모리 변수로만 유지한다. API 내부에서도 풀이 배열은 exam 요약과 분리된 비공개 변수에 보관한다. `startExam`, `getExam`, `gotoExam`, `submit` 및 `cmd` 응답에는 풀이·원본 링크·answer 필드를 넣지 않는다. `endExam()` 결과의 `problems[n].answer`에만 `{n, bash, source: {label, url}}` 또는 null을 담고 `hasAnswers`로 파일 선택 여부를 알린다. 문항 번호로 대응하므로 개수가 달라도 일치하는 번호만 표시한다. 이유: 종료 전 실수로 풀이가 시험 화면에 전달되는 것을 막는다.
 
-실제 서버로 교체할 때도 이 응답 격리 계약을 유지한다. 실제 연동 때 grader 가 풀이를 모범 답안 · 루브릭 참고로 쓴다. 파일 이름 규칙은 `<name>.md` ↔ `<name>.answers.md`이며 폴더 선택에서는 같은 폴더의 짝을 자동 연결하고 직접 선택도 지원한다. 목업 점수는 기존 고정 예시이며 업로드 풀이를 이용한 실제 채점은 하지 않는다. 이유: 계획 §6-6의 향후 grader 계약과 현재 정적 프로토타입 범위를 구분한다.
+서버 모드도 이 응답 격리 계약을 유지한다. 풀이는 서버 연습 폴더의 `exams/<name>.answers.md` 에서 grader 가 모범 답안 · 루브릭 참고로 읽고, 브라우저에는 종료 응답에만 담는다. 파일 이름 규칙은 `<name>.md` ↔ `<name>.answers.md`이며 폴더 선택에서는 같은 폴더의 짝을 자동 연결하고 직접 선택도 지원한다. 정적 목업 모드의 점수는 고정 예시이며 실제 채점은 서버 모드에서 grader 가 한다.
 
-정적 프로토타입은 풀이를 브라우저 메모리에 받아 두므로 개발자 도구를 통한 메모리 검사는 막지 못한다. 화면·숨은 DOM·localStorage에 넣지 않는 경계를 보장한다. 이유: 서버 기반 정답 격리와 로컬 목업의 차이를 명시한다.
+정적 목업 모드는 풀이를 브라우저 메모리에 받아 두므로 개발자 도구를 통한 메모리 검사는 막지 못한다. 화면·숨은 DOM·localStorage에 넣지 않는 경계를 보장한다. 이유: 서버 기반 정답 격리와 로컬 목업의 차이를 명시한다.
 
 - 문제·풀이 파일 선택은 각 입력의 요청 토큰으로 마지막 선택만 반영하며 읽기 잠금도 같은 토큰일 때만 해제한다. 이유: 느린 이전 파일 읽기가 최신 선택과 대기 상태를 덮어쓰지 않는다.
 - 문제와 풀이의 문항 구분은 코드 펜스 밖의 `## Q<n>` 줄만 사용한다. 이유: 예제 코드 안의 문항 표기를 원문으로 유지한다.
 - 목업 console 응답은 4-backtick 펜스를 사용하며 UI는 3~4-backtick 펜스를 읽는다. 이유: 명령 에코에 포함된 3-backtick이 출력 블록을 끊지 않는다.
 - 실행 대기 경과 초는 상태 줄만 갱신하고 출력은 응답 델타·초기 표시·오류 때 갱신한다. 이유: 매초 출력 DOM을 재생성하지 않는다.
-- 정적 목업에서는 콘솔의 `MockAPI.endExam()` 호출로 풀이를 볼 수 있다. 실서버 단계에서는 실제 end 이후에만 풀이를 제공한다.
+- 정적 목업 모드에서는 콘솔의 `MockAPI.endExam()` 호출로 풀이를 볼 수 있다. 서버 모드는 실제 end 이후에만 풀이를 보낸다.
 
 ## 8. 이벤트 로그와 이어 풀기
 
@@ -138,13 +215,13 @@ API 계약: `cmd({text, terminal, host})`의 terminal은 1 또는 2, host는 그
 | pause / resume | at | 자리 비움·복귀 |
 | end | at | 종료 성공; 점수 없음 |
 
-API 계약: `resumeExam({log, answers?})`는 JSONL과 재선택 풀이를 받고 복원된 exam·questions·preferences·timing을 반환한다. 목업의 `bindLog(log)`는 UI와 API가 같은 남은 시간을 쓰는 로컬 시계 연결이다. **the real server writes the same format to .cka/exam-log.jsonl and GET /api/exam returns the restored state**. 실제 서버에서도 재생 중 cmd를 다시 실행하지 않으며 풀이·점수는 로그에 넣지 않는다.
+API 계약: `resumeExam({log, answers?})`는 JSONL과 재선택 풀이를 받고 복원된 exam·questions·preferences·timing을 반환한다. 목업의 `bindLog(log)`는 UI와 API가 같은 남은 시간을 쓰는 로컬 시계 연결이다. 서버 모드에서도 이벤트 로그는 브라우저 localStorage 에 두고 서버는 쓰지 않는다. 이어 풀기는 브라우저 로그를 재생하되, 서버에 같은 제목의 진행 중 시험(GET /api/exam)이 있을 때만 허용하고 시험 요약은 서버 값을 쓴다. 재생 중 cmd를 다시 실행하지 않으며 풀이·점수는 로그에 넣지 않는다.
 
 제한: 브라우저 저장소를 지우면 로그도 삭제된다. 저장 실패 중 이탈하면 다운로드하지 않은 메모리 로그는 유실된다. 강제 종료로 pause가 남지 않으면 마지막 이벤트 시각까지만 사용 시간을 추정한다. 전송 중 응답이 끝나기 전에 페이지가 종료되면 그 미완료 명령은 복원되지 않는다. 여러 탭에서 같은 시험을 동시에 쓰는 충돌 조정과 JSONL 파일 업로드는 이번 범위에 없다. 로그에는 사용자가 입력한 명령·메모와 문제 원문이 포함되므로 사용자가 직접 적은 민감 정보는 내려받은 파일에도 남는다.
 
 ## 9. 시험 차시 기록
 
-시작 화면 “파일 직접 고르기” 안의 [차시 기록 열기]에서 최대 1MiB JSONL 파일을 선택한다. 시험 화면으로 이동하지 않고 기존 이어 풀기 카드를 유지한다. 시험 경로별로 묶고 차시 번호순으로 문항 × 차시 표를 표시한다. 각 칸은 점수/배점과 명령 횟수, 직전 차시 대비 ▲ 상승·▼ 하락을 보여 주며 마지막 차시 미득점 문항은 “다시 볼 문항”으로 표시한다. 아래 행에는 총점 %, 합격 여부, 한국어 종료 일시, 소요 분을 표시한다. 자동 출제는 총점 목록만 표시한다. 잘못된 줄은 건너뛰고 “n줄을 읽지 못했습니다”를 안내하며 모든 문자열은 textContent로 표시한다. real server: GET /api/attempts serves the same JSONL; the mock uses file selection. 기록은 읽기만 하며 시험 이벤트 로그나 브라우저 저장소에 추가하지 않는다.
+시작 화면 “파일 직접 고르기” 안의 [차시 기록 열기]에서 최대 1MiB JSONL 파일을 선택한다. 시험 화면으로 이동하지 않고 기존 이어 풀기 카드를 유지한다. 시험 경로별로 묶고 차시 번호순으로 문항 × 차시 표를 표시한다. 각 칸은 점수/배점과 명령 횟수, 직전 차시 대비 ▲ 상승·▼ 하락을 보여 주며 마지막 차시 미득점 문항은 “다시 볼 문항”으로 표시한다. 아래 행에는 총점 %, 합격 여부, 한국어 종료 일시, 소요 분을 표시한다. 자동 출제는 총점 목록만 표시한다. 잘못된 줄은 건너뛰고 “n줄을 읽지 못했습니다”를 안내하며 모든 문자열은 textContent로 표시한다. 서버 모드는 GET /api/attempts 로 서버 연습 폴더의 기록을 받아 시험 선택 화면에 쓴다(정적 목업 모드는 파일 선택). 기록은 읽기만 하며 시험 이벤트 로그나 브라우저 저장소에 추가하지 않는다.
 
 
 ## 10. 연습 폴더 → 시험 선택
@@ -155,4 +232,12 @@ API 계약: `resumeExam({log, answers?})`는 JSONL과 재선택 풀이를 받고
 
 같은 문제 원문의 미완료 브라우저 로그가 있으면 [n+1차시 이어서 풀기]와 [버리고 n+1차시 새로 시작]을 제공한다. 재개는 기존 이벤트 재생을 사용하며 풀이 파일을 자동으로 다시 연결한다. 새 시작은 확인 후 해당 로그를 버린다. 직접 고른 파일의 기존 재개 카드와 문제·풀이·차시 기록 입력은 “파일 직접 고르기” details 안에서 계속 사용할 수 있다. [예시 문제로 시작]과 시험 시간 입력은 접힌 영역 밖에 둔다.
 
-real server: GET /api/exams returns the same list (no folder picking); solution content is not sent to the browser before exam end. 실서버 목록에는 시험 식별자·문항 수·풀이 유무·차시 기록·진행 여부만 제공한다. 이번 변경은 정적 목업 화면이며 서버 API 구현은 포함하지 않는다.
+서버 모드: 서버가 `--practice` 로 연습 폴더를 알고 있으므로 폴더 선택 입력을 숨기고, 페이지를 열 때마다 GET /api/exams · /api/exam-file · /api/attempts 로 목록 · 원문 · 차시를 바로 읽는다. 풀이 내용은 보내지 않고 "풀이 있음" 표시만 받는다. 시작 화면에는 연습 폴더 경로(~ 축약)를 보여 준다. 이유: 브라우저는 고른 폴더를 다시 읽을 수 없고, 서버는 이미 폴더를 안다.
+
+시험 선택 영역(두 모드 공통)
+
+- 시험 목록은 고를 수 있는 카드 행이고, 고른 행은 파란 테두리로 표시한다.
+- 고른 시험은 `$ <파일 이름>` 처럼 터미널 경로 모양(고정폭, 초록 `$`)으로 보여 준다.
+- 지난 차시는 "▸ 지난 차시 N회 · 최근 X% 합격/불합격  자세히" 한 줄로 접어 두고, 누르면 문항별 표가 펼쳐진다(높이 제한, 안에서 스크롤).
+- 주 동작 하나만 크게 둔다: 이어 풀 수 있으면 "N차시 이어서 풀기 →", 아니면 "N차시 새로 시작 →". 브라우저 로그를 버리는 "버리고 N차시 새로 시작"은 작은 빨간 글자 버튼이다. 서버 모드에서 "이어서 풀기"는 서버에 같은 시험이 진행 중일 때만 보인다.
+- "또는" 구분선 아래에 [예시 문제로 시작]을 둔다.
