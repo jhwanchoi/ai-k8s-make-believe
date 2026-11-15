@@ -13,6 +13,14 @@ window.DesktopUI = class {
     this.$('browser-forward').onclick = () => this.history('forward');
     this.$('browser-reload').onclick = () => this.reload();
     this.$('browser-frame').onload = () => { this.status('문서 로드 이벤트 수신 · 뒤로/앞으로는 직접 입력한 주소 기록만 탐색합니다. 표시되지 않으면 새 창으로 여세요.'); };
+    // 서버가 진짜 Firefox(컨테이너 웹 화면) 주소를 주면 그 화면을 띄운다. 주소창 · 뒤로 · 탭은 그 Firefox 것을 쓴다.
+    // 다른 출처(포트)라 시험 화면에 접근하지 못한다. iframe 안 kubernetes.io 검색 결과(target=_parent) 문제도 없다.
+    this.streaming = Boolean(window.SIM_BROWSER);
+    if (this.streaming) {
+      for (const el of [this.$('browser-form'), this.$('browser-status'), this.$('open-browser'), document.querySelector('.firefox-tabs')]) if (el) el.style.display = 'none';
+      this.$('browser-frame').setAttribute('allow', 'clipboard-read; clipboard-write');
+      this.$('firefox-title').textContent = 'Firefox';
+    }
     this.resizeBrowser();
     const clock = () => { const now = new Date(); this.$('desktop-clock').textContent = now.toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit', hour12: false}); this.$('desktop-clock').dateTime = now.toISOString(); };
     clock(); setInterval(clock, 1000);
@@ -35,6 +43,7 @@ window.DesktopUI = class {
     this.$('desktop-windows').classList.remove('firefox-closed');
     this.$('firefox-task').setAttribute('aria-pressed', 'true');
     this.$('applications-menu').open = false;
+    if (this.streaming) { if (!this.$('browser-frame').getAttribute('src')) this.$('browser-frame').src = window.SIM_BROWSER; this.$('browser-frame').focus(); return; }
     if (!this.$('browser-frame').getAttribute('src')) this.navigate(this.url);
     this.$('browser-address').focus();
   }

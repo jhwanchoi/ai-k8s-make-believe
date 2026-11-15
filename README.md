@@ -116,6 +116,21 @@ python3 simulator/server.py --practice ~/cka-practice   # http://127.0.0.1:8765/
 - 서버 없이 `simulator/static/` 을 정적 서버로 열면 고정 응답만 내는 목업으로 동작합니다.
 - 연결 전과 후 구조는 [docs/architecture.png](docs/architecture.png)(원본 `docs/architecture.drawio`)를 보세요.
 
+### 문서 브라우저(진짜 Firefox)
+
+화면 안 Firefox 창은 기본적으로 iframe 이라 kubernetes.io 검색 결과를 눌러도 열리지 않습니다(결과 링크가 바깥 창을 이동시키도록 되어 있음). Docker 가 있으면 실제 시험처럼 따로 도는 진짜 Firefox 화면을 띄울 수 있습니다. 허용 문서(kubernetes.io/docs · /blog · /search, helm.sh/docs, gateway-api.sigs.k8s.io) 밖은 Firefox 정책(`simulator/firefox/policies.json`)으로 막고, Google 을 막아 kubernetes.io 검색이 사이트 자체 검색(Pagefind)으로 동작합니다.
+
+```bash
+docker run -d --name cka-firefox -p 127.0.0.1:5800:5800 \
+  -e FF_OPEN_URL=https://kubernetes.io/docs/ -e ENABLE_CJK_FONT=1 \
+  --add-host www.google.com:0.0.0.0 --add-host google.com:0.0.0.0 --add-host cse.google.com:0.0.0.0 \
+  -v "$PWD/simulator/firefox/policies.json:/usr/lib/firefox/distribution/policies.json:ro" \
+  jlesage/firefox
+python3 simulator/server.py --practice ~/cka-practice --browser-url http://127.0.0.1:5800/
+```
+
+끌 때는 `docker stop cka-firefox`, 다시 켤 때는 `docker start cka-firefox` 입니다. 이미지는 약 1GB 입니다.
+
 ## 동작 방식
 
 - **최종 상태로 채점합니다.** imperative로 풀든 YAML로 풀든 결과가 같으면 정답입니다. 결정적으로 판단할 수 있는 항목은 `grade.py`가 보고 의미를 따져야 하는 항목만 Claude가 봅니다. 리소스가 있는지만 보지 않고 Pod가 어느 노드에 떴는지, 요청이 실제로 라우팅될 조건이 갖춰졌는지 같은 결과 상태도 봅니다.

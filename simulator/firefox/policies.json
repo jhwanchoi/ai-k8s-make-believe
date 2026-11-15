@@ -1,0 +1,30 @@
+{
+  "policies": {
+    "WebsiteFilter": {
+      "Block": ["<all_urls>"],
+      "Exceptions": [
+        "https://kubernetes.io/docs/*",
+        "https://kubernetes.io/*/docs/*",
+        "https://kubernetes.io/blog/*",
+        "https://kubernetes.io/*/blog/*",
+        "https://kubernetes.io/search/*",
+        "https://kubernetes.io/*/search/*",
+        "https://helm.sh/docs/*",
+        "https://gateway-api.sigs.k8s.io/*"
+      ]
+    },
+    "Homepage": {"URL": "https://kubernetes.io/docs/", "Locked": true, "StartPage": "homepage"},
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "DontCheckDefaultBrowser": true,
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "DisablePocket": true,
+    "DisableFeedbackCommands": true,
+    "NoDefaultBookmarks": true,
+    "PasswordManagerEnabled": false,
+    "OfferToSaveLogins": false,
+    "UserMessaging": {"WhatsNew": false, "ExtensionRecommendations": false, "FeatureRecommendations": false, "SkipOnboarding": true, "MoreFromMozilla": false},
+    "FirefoxHome": {"Search": false, "TopSites": false, "SponsoredTopSites": false, "Highlights": false, "Pocket": false, "SponsoredPocket": false, "Snippets": false}
+  }
+}

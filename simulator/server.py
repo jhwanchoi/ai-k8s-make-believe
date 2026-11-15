@@ -459,7 +459,7 @@ class Exams:
 
 # ---------- HTTP ----------
 
-def make_handler(practice, claude, exams, port):
+def make_handler(practice, claude, exams, port, browser_url=None):
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
     class Handler(SimpleHTTPRequestHandler):
@@ -493,7 +493,10 @@ def make_handler(practice, claude, exams, port):
         def do_GET(self):
             if self.path == "/config.js":
                 shown = str(practice).replace(str(Path.home()), "~", 1)
-                data = f"window.SIM_SERVER = true;\nwindow.SIM_PRACTICE = {json.dumps(shown)};\n".encode()
+                data = f"window.SIM_SERVER = true;\nwindow.SIM_PRACTICE = {json.dumps(shown)};\n"
+                if browser_url:  # 화면 안 Firefox 창에 띄울 진짜 Firefox(컨테이너 웹 VNC) 주소
+                    data += f"window.SIM_BROWSER = {json.dumps(browser_url)};\n"
+                data = data.encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript")
                 self.send_header("Content-Length", str(len(data)))
@@ -678,11 +681,12 @@ def main():
     ap.add_argument("--practice", default=str(Path.home() / "cka-practice"))
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--model", default="sonnet")
+    ap.add_argument("--browser-url", help="화면 안 Firefox 창에 띄울 진짜 Firefox 웹 화면 (예: http://127.0.0.1:5800/)")
     a = ap.parse_args()
     practice = Path(a.practice).expanduser().resolve()
     (practice / ".cka").mkdir(parents=True, exist_ok=True)  # .cka 가 있어야 guard 훅이 켜진다
     claude, exams = Claude(practice, a.model), Exams(practice)
-    server = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(practice, claude, exams, a.port))
+    server = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(practice, claude, exams, a.port, a.browser_url))
     print(f"http://127.0.0.1:{a.port}/  (연습 폴더 {practice}, 모델 {a.model})", file=sys.stderr)
     server.serve_forever()
 
