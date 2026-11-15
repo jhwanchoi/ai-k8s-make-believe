@@ -71,6 +71,23 @@ POST 는 `X-Sim: 1` 헤더와 Host 가 127.0.0.1/localhost 인 요청만 받는�
 
 이유: Windows 에서 Ctrl+C 는 원래 복사지만, 실제 시험 Linux 터미널처럼 취소로 쓴다. `^C` 와 `clear` 는 화면에만 남는 동작이라 이어 풀기 때 다시 그리지 않는다.
 
+### vim · nano 편집기
+
+- `vim|vi|nano <경로>` 한 줄 명령(앞에 `sudo` 가능)은 Claude 에 보내지 않고 그 터미널 창 안을 편집기로 바꾼다. 파일은 `GET /api/file` 로 현재 문제 state.json 의 `hosts.<host>.files` 에서 읽고(`~` 은 홈, 상대 경로는 `meta.cwd` 기준), 저장은 `POST /api/file` 이 state.json 에 바로 쓰고 history 에 `$ vim <경로>` 와 변경 줄을 남긴다. Claude 를 부르지 않아 즉시 저장된다. 이유: 실제 시험에서 YAML 을 고치는 주된 방법이 vim 이고, 저장 결과가 채점 상태에 그대로 들어가야 한다.
+- 편집기는 CodeMirror 6 + vim 키(`vendor/codemirror-vim.js`, MIT, 버전 고정)다. 실제 시험 안내대로 `i` 로 입력 모드에 들어가고 **INSERT 키는 막는다**. 줄 번호는 기본으로 없다. `~/.vimrc` 의 `expandtab`(et) · `tabstop`(ts) · `shiftwidth`(sw) · `number`(nu) 를 따른다. 호스트마다 `.vimrc` 가 따로라 ssh 로 옮기면 다시 만들어야 한다. 이유: 실제 vim 기본값과 응시자가 흔히 쓰는 설정을 그대로 연습한다.
+- 편집기가 열린 동안 그 터미널은 입력을 받지 않고, 문항 이동 · 제출 · 종료는 잠긴다(창이 다시 그려지면 편집 내용이 사라진다). 편집 중 키는 시험 화면 단축키로 새지 않는다.
+- 정적 목업 모드에서도 열리고 저장은 메모리에만 한다.
+
+| 편집기 키 | 동작 |
+|---|---|
+| `i` `a` `o` · Esc | 입력 모드 · 보통 모드 (INSERT 키는 막힘) |
+| `dd` `yy` `p` `u` `/검색` `:%s/a/b/g` 등 | vim 기본 편집 (codemirror-vim 이 지원하는 범위) |
+| `:w` | 저장 (`"<경로>" NL, NB written`) |
+| `:wq` · `:x` | 저장하고 닫기 (`:x` 는 바뀐 게 있을 때만 저장) |
+| `:q` | 닫기. 저장 안 한 변경이 있으면 `E37: No write since last change (add ! to override)` |
+| `:q!` | 저장하지 않고 닫기 |
+| nano Ctrl+O · Ctrl+X | 저장 · 나가기 (변경이 있으면 `Save modified buffer?` Y/N, Ctrl+C 취소) |
+
 ## 1. 시작 화면
 
 - 왼쪽에 사용 목적과 3단계 흐름, 오른쪽에 시작 폼을 둔다. 이유: 처음 온 사용자가 가상 연습임을 이해하고 바로 시작할 수 있다.
@@ -154,6 +171,8 @@ iframe 내부 링크로 이동한 주소는 교차 출처이므로 주소창·�
 | POST /api/exam/goto {n} | gotoExam({n}) | Promise<시험 요약> |
 | POST /api/submit | submit() | Promise<message: "제출 기록됨", exam> |
 | POST /api/exam/end | endExam() | Promise<path, hasAnswers, mock, total, passed, problems> |
+| GET /api/file?host&path | readFile({host, path}) | Promise<path, exists, text, vimrc> (편집기 열기. 현재 문제 state 의 가상 파일만) |
+| POST /api/file {host, path, text, editor} | writeFile({host, path, text, editor}) | Promise<path, bytes> (편집기 저장. state.json · history 에 바로 반영, Claude 없음) |
 
 `file`과 선택적인 `answers`는 정적 프로토타입에서 `{name, text}`다. `answers`를 생략하거나 null로 보내면 풀이 없이 시작한다. 실제 서버 어댑터가 업로드·경로를 해결해야 한다. 종료 응답은 리포트 경로와 렌더링용 요약을 함께 준다. 실제 SSE 연결도 같은 델타 iterator로 변환하면 UI 파일을 바꾸지 않는다. 목업은 1~3초 기다린 후 약 45ms 간격으로 응답을 나눈다.
 

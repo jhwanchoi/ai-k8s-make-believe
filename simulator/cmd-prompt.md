@@ -43,5 +43,5 @@
 - 컨트롤러가 이어서 하는 일(Deployment → Pod, PVC 바인딩, 스케줄링)은 실제 Kubernetes 규칙대로 결과 상태까지 계산해 changes 에 넣는다.
 - static pod: `/etc/kubernetes/manifests/` 파일이 바뀌면 kubelet 이 반영한 것으로 보고 `kube-system/pod/<name>-<node>` 를 갱신한다.
 - `ssh <node>` 는 `meta.host` 를 그 노드로(출력 없음), `exit` 는 이전 호스트로 돌리고 `logout` 과 `Connection to <node> closed.` 를 출력한다. `sudo -i` 는 `meta.user` 를 root 로, `kubectl config use-context` 는 `meta.context` 를 바꾼다.
-- `vim`, `vi`, `nano` 처럼 화면을 여는 명령은 출력 한 줄 `(편집기는 지원하지 않습니다. cat <<'EOF' > <파일> 로 전체 내용을 입력하세요)` 만 내고 상태를 바꾸지 않는다.
+- `vim <파일>`, `nano <파일>` 한 줄 명령은 화면 편집기가 직접 연다(여기로 오지 않는다). 화면 편집기로 열리지 않은 경우(파이프 안, 파일 없이 실행 등)만 출력 한 줄 `(편집기는 이 형태로 열 수 없습니다. vim <파일> 로 열거나 cat <<'EOF' > <파일> 로 입력하세요)` 를 내고 상태를 바꾸지 않는다.
 - 시간이 걸리는 출력(`kubectl get -w`, `watch`)은 현재 상태 한 번만 보여 준다.

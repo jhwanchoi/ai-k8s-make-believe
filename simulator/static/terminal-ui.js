@@ -5,7 +5,8 @@ window.TerminalWorkspace = class {
     this.questions = {}; this.queue = []; this.processing = false; this.locked = false;
     addButton.onclick = () => this.add();
   }
-  get pending() { return this.processing || this.queue.length > 0; }
+  // 편집기가 열린 동안도 문항 이동 · 제출을 잠근다 (창이 다시 그려지면 편집 내용이 사라진다)
+  get pending() { return this.processing || this.queue.length > 0 || !!this.state?.terminals.some(t => t.phase === 'editing'); }
   reset() { this.questions = {}; this.queue = []; this.processing = false; }
   show(question) {
     this.question = question;
@@ -215,10 +216,26 @@ window.TerminalWorkspace = class {
     if (this.locked || this.isExpired() || t.phase !== 'idle') return;
     const text = t.view.input.value.trim();
     if (!text) { this.local(t, ''); return; } // 빈 Enter 는 새 프롬프트만
+    const edit = text.match(/^(?:sudo\s+)?(vim|vi|nano)\s+(\S+)$/);
+    if (edit && window.TermEditor && window.CM && this.api.readFile) { this.edit(t, text, edit[1], edit[2]); return; }
     if (text === 'clear') { t.history.push(text); t.historyIndex = t.history.length; t.clearedAt = t.entries.length; this.setInput(t, ''); this.render(t); return; }
     t.draft = t.view.input.value; t.phase = 'queued'; t.status = '대기 중 — 앞선 터미널 응답을 기다립니다.';
     this.queue.push({t, text}); this.renderStatus(t); this.lock(this.locked); this.onPending();
     return this.drain();
+  }
+  // vim · nano 는 Claude 대신 터미널 창 안 편집기로 연다. 저장은 편집기가 서버에 바로 쓴다
+  edit(t, text, mode, path) {
+    t.history.push(text); t.historyIndex = t.history.length;
+    const entry = {text, host: t.host, response: '', local: true};
+    t.entries.push(entry); this.setInput(t, '');
+    t.phase = 'editing'; t.status = ''; t.view.panel.classList.add('editing');
+    this.render(t); this.lock(this.locked); this.onPending();
+    window.TermEditor.open({pane: t.view.panel, host: t.host, path, mode: mode === 'nano' ? 'nano' : 'vim', api: this.api,
+      onClose: ({error} = {}) => {
+        if (error) entry.response = error;
+        t.phase = 'idle'; t.view.panel.classList.remove('editing');
+        this.render(t); this.lock(this.locked); this.onPending(); t.view.input.focus();
+      }});
   }
   async drain() {
     if (this.processing) return;

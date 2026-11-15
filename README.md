@@ -113,6 +113,7 @@ python3 simulator/server.py --practice ~/cka-practice   # http://127.0.0.1:8765/
 - 터미널 명령은 Claude 를 도구 없이 한 번만 불러 출력과 상태 변경(`<changes>`)을 받고, 서버가 상태와 기록을 코드로 반영합니다. 명령 하나에 보통 2~5초(Deployment 처럼 연쇄가 큰 명령은 10초 안팎)입니다. 없는 명령이나 kubectl 플래그 오타는 Claude 없이 바로 에러를 냅니다. 출제·이동·제출·종료는 플러그인 grader 가 맡아 몇 분 걸릴 수 있습니다.
 - 호출마다 Claude 사용량이 듭니다(명령 하나에 약 $0.02~0.03). 기본 모델은 Sonnet이고 `--model` 로 바꿀 수 있습니다. 호출별 시간과 비용은 `.cka/server-log.jsonl` 에 남습니다.
 - 서버는 127.0.0.1 에만 열고, 다른 사이트에서 오는 요청은 막습니다. 풀이와 환경 파일은 시험이 끝나기 전에 브라우저로 보내지 않습니다.
+- `vim <파일>` · `nano <파일>` 은 터미널 창 안 편집기로 열립니다. 실제 시험처럼 `i` 로 입력 모드(INSERT 키는 막힘), `:wq` 로 저장하면 가상 파일에 바로 반영됩니다. `~/.vimrc` 의 `set expandtab tabstop=2 shiftwidth=2` 도 따릅니다.
 - 서버 없이 `simulator/static/` 을 정적 서버로 열면 고정 응답만 내는 목업으로 동작합니다.
 - 연결 전과 후 구조는 [docs/architecture.png](docs/architecture.png)(원본 `docs/architecture.drawio`)를 보세요.
 

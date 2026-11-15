@@ -12,6 +12,7 @@ Usage: server.py [--practice ~/cka-practice] [--port 8765] [--model sonnet] [--b
 import argparse
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -265,6 +266,39 @@ def history_entry(n, text, output, change_lines):
             + ("\n".join(change_lines) if change_lines else "변경: 없음") + "\n")
 
 
+def home_of(state):
+    user = state.get("meta", {}).get("user") or "root"
+    return "/root" if user == "root" else f"/home/{user}"
+
+
+def file_path(state, raw):
+    """편집기에 연 경로를 절대 경로로: ~ 은 홈, 상대 경로는 meta.cwd 기준, normpath. 이상하면 ValueError."""
+    if not isinstance(raw, str) or not raw or len(raw) > 512 or "\x00" in raw:
+        raise ValueError("파일 경로가 잘못됐습니다.")
+    home = home_of(state)
+    if raw == "~" or raw.startswith("~/"):
+        raw = home + raw[1:]
+    elif not raw.startswith("/"):
+        raw = (state.get("meta", {}).get("cwd") or home).rstrip("/") + "/" + raw
+    path = posixpath.normpath(raw)
+    if not path.startswith("/") or path in ("/", "//") or path.endswith("/"):
+        raise ValueError("파일 경로가 잘못됐습니다.")
+    return path
+
+
+def save_file(state, host, path, text):
+    """편집기 저장: hosts.<host>.files[path] 와 file_attrs[path].mtime 을 바꾼 새 state 와 history '변경:' 줄."""
+    new = json.loads(json.dumps(state))
+    h = new.setdefault("hosts", {}).setdefault(host, {})
+    h.setdefault("files", {})[path] = text
+    attrs = h.setdefault("file_attrs", {}).setdefault(path, {})
+    for key, default in (("mode", "-rw-r--r--"), ("owner", "root"), ("group", "root")):
+        attrs.setdefault(key, default)
+    attrs["mtime"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    attrs.pop("size", None)  # 크기는 내용 길이로 계산한다
+    return new, f'변경: hosts.{host}.files["{path}"] 저장 ({len(text.encode())} bytes)'
+
+
 class Claude:
     def __init__(self, practice, model):
         self.practice, self.model = Path(practice), model
@@ -460,6 +494,15 @@ class Exams:
 
 # ---------- HTTP ----------
 
+def current_problem(cka):
+    """진행 중인 문제의 (id, state.json 경로, state). 없으면 ValueError."""
+    pid = (cka / "current").read_text().strip() if (cka / "current").exists() else ""
+    if not pid or "/" in pid or not (cka / pid / "state.json").exists():
+        raise ValueError("진행 중인 문제가 없습니다.")
+    path = cka / pid / "state.json"
+    return pid, path, json.loads(path.read_text())
+
+
 def make_handler(practice, claude, exams, port, browser_url=None):
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
@@ -521,6 +564,21 @@ def make_handler(practice, claude, exams, port, browser_url=None):
                     return self._json(200, {"name": path.name, "text": path.read_text()})
                 except (ValueError, OSError):
                     return self._json(404, {"error": "문제 파일을 찾지 못했습니다."})
+            if self.path.startswith("/api/file"):
+                # 편집기 열기: 현재 문제 state 의 가상 파일만 (answer-key 는 읽지 않는다)
+                q = parse_qs(urlsplit(self.path).query)
+                host = q.get("host", [""])[0]
+                try:
+                    if not re.fullmatch(r"[\w.-]+", host):
+                        raise ValueError("host 가 잘못됐습니다.")
+                    _, _, state = current_problem(practice / ".cka")
+                    path = file_path(state, q.get("path", [""])[0])
+                except ValueError as e:
+                    return self._json(400, {"error": str(e)})
+                files = state.get("hosts", {}).get(host, {}).get("files", {})
+                vimrc = files.get(home_of(state) + "/.vimrc")
+                return self._json(200, {"path": path, "exists": path in files, "text": files.get(path) or "",
+                                        "vimrc": vimrc if isinstance(vimrc, str) else ""})
             if self.path.startswith("/api/complete"):
                 host = parse_qs(urlsplit(self.path).query).get("host", [""])[0]
                 return self._json(200, exams.completion(host))
@@ -530,7 +588,7 @@ def make_handler(practice, claude, exams, port, browser_url=None):
             if not self._guard():
                 return
             routes = {"/api/exam/start": self.start, "/api/exam/goto": self.goto, "/api/submit": self.submit,
-                      "/api/exam/end": self.end, "/api/cmd": self.cmd}
+                      "/api/exam/end": self.end, "/api/cmd": self.cmd, "/api/file": self.save}
             route = routes.get(self.path)
             if not route:
                 return self._json(404, {"error": "not found"})
@@ -600,6 +658,30 @@ def make_handler(practice, claude, exams, port, browser_url=None):
             meta["ended"] = True
             exams.meta_file.write_text(json.dumps(meta))
             self._json(200, exams.report())
+
+        def save(self, body):
+            """편집기 저장(:w, Ctrl+O). Claude 없이 state.json 에 바로 쓰고 history 에 남긴다."""
+            meta = self._running()
+            if time.time() >= (meta.get("ends_at") or float("inf")):
+                raise ValueError("시험 시간이 끝났습니다. 시험을 종료하세요.")
+            host, text, editor = body.get("host"), body.get("text"), body.get("editor") or "vim"
+            if not isinstance(host, str) or not re.fullmatch(r"[\w.-]+", host) or not isinstance(text, str) \
+                    or len(text) > 512 * 1024 or editor not in ("vim", "vi", "nano"):
+                raise ValueError("host, 내용, 편집기 종류가 필요합니다.")
+            cka = practice / ".cka"
+            pid, state_path, state = current_problem(cka)
+            path = file_path(state, body.get("path"))
+            state, line = save_file(state, host, path, text)
+            state.setdefault("meta", {})["cmd_count"] = int(state["meta"].get("cmd_count") or 0) + 1
+            tmp = state_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1))
+            os.replace(tmp, state_path)
+            with open(cka / pid / "history.md", "a") as hist:
+                hist.write(history_entry(state["meta"]["cmd_count"], f"{editor} {path}", "", [line]))
+            with open(cka / "server-log.jsonl", "a") as log:
+                log.write(json.dumps({"at": int(time.time()), "kind": "file", "seconds": 0, "cost_usd": 0,
+                                      "warning": ""}, ensure_ascii=False) + "\n")
+            self._json(200, {"path": path, "bytes": len(text.encode())})
 
         def cmd(self, body):
             """명령 하나: Claude 한 번(도구 없음)으로 <output> 을 흘리고, 끝나면 <changes> 를 코드로 state.json 에 적용한다.
@@ -793,6 +875,52 @@ def _selftest():
     assert set(kubectl_refs("kubectl -n dev get pods")) == {"kubectl_get.md"}
     assert set(kubectl_refs("kubectl gte po")) == {"kubectl.md"}
     assert "### #2" in history_entry(2, "ls", "a\nb\nc\nd", []) and "> d" not in history_entry(2, "ls", "a\nb\nc\nd", [])
+    # 편집기 경로: ~ · 상대 경로(cwd) · normpath, 이상한 경로 거부
+    st = {"meta": {"user": "root", "cwd": "/root/app"}}
+    assert file_path(st, "~/a.yaml") == "/root/a.yaml" and file_path(st, "b.yaml") == "/root/app/b.yaml"
+    assert file_path(st, "../etc/../x") == "/root/x" and file_path(st, "/etc/kubernetes/manifests/etcd.yaml").endswith("etcd.yaml")
+    for bad in ("", "/", "a\x00b", "x" * 600, None):
+        try:
+            file_path(st, bad)
+            raise AssertionError(f"should reject {bad!r}")
+        except ValueError:
+            pass
+    saved, line = save_file({"hosts": {"cp": {"file_attrs": {"/root/a": {"mode": "-rw-------", "size": 9}}}}}, "cp", "/root/a", "hi\n")
+    assert saved["hosts"]["cp"]["files"]["/root/a"] == "hi\n" and "3 bytes" in line
+    assert saved["hosts"]["cp"]["file_attrs"]["/root/a"]["mode"] == "-rw-------" and "size" not in saved["hosts"]["cp"]["file_attrs"]["/root/a"]
+    # 파일 API: 실제 핸들러로 읽기 · 저장 (Claude 호출 없음), answer-key 는 응답에 없다
+    import socket
+    import urllib.request
+    with tempfile.TemporaryDirectory() as tmp:
+        practice = Path(tmp)
+        cka = practice / ".cka"
+        (cka / "q01").mkdir(parents=True)
+        (cka / "current").write_text("q01")
+        (cka / "q01" / "state.json").write_text(json.dumps({"meta": {"user": "root", "cwd": "/root", "cmd_count": 2},
+            "hosts": {"cp": {"files": {"/root/d.yaml": "kind: Pod\n", "/root/.vimrc": "set et sw=2\n"}}}}))
+        (cka / "q01" / "history.md").write_text("# history q01\n")
+        (cka / "q01" / "answer-key.md").write_text("SECRET-ANSWER")
+        (cka / "exam.json").write_text(json.dumps({"problems": []}))
+        (cka / "server-exam.json").write_text(json.dumps({"file": "x.md", "ends_at": int(time.time()) + 600}))
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(practice, Claude(practice, "sonnet"), Exams(practice), port))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{port}"
+        try:
+            got = urllib.request.urlopen(f"{base}/api/file?host=cp&path=~/d.yaml").read().decode()
+            assert "SECRET" not in got and json.loads(got) == {"path": "/root/d.yaml", "exists": True, "text": "kind: Pod\n", "vimrc": "set et sw=2\n"}
+            req = urllib.request.Request(f"{base}/api/file", method="POST", headers={"Content-Type": "application/json", "X-Sim": "1"},
+                                         data=json.dumps({"host": "cp", "path": "d.yaml", "text": "kind: Service\n", "editor": "vim"}).encode())
+            assert json.loads(urllib.request.urlopen(req).read())["path"] == "/root/d.yaml"
+            state = json.loads((cka / "q01" / "state.json").read_text())
+            assert state["hosts"]["cp"]["files"]["/root/d.yaml"] == "kind: Service\n" and state["meta"]["cmd_count"] == 3
+            hist = (cka / "q01" / "history.md").read_text()
+            assert "$ vim /root/d.yaml" in hist and 'files["/root/d.yaml"] 저장 (14 bytes)' in hist
+        finally:
+            srv.shutdown()
+            srv.server_close()
     print("selftest ok")
 
 

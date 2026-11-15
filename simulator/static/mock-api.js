@@ -113,11 +113,22 @@ archive 네임스페이스에 데이터를 보관할 PVC와 Pod를 만드세요.
   function running() {
     if (!exam || exam.ended) throw Error('진행 중인 시험이 없습니다.');
   }
+  const mockFiles = new Map();
+  const mockPath = path => (path.startsWith('/') ? path : `/root/${path.replace(/^~\/?/, '')}`).replace(/\/+/g, '/');
   const api = {
     // Local parsing utilities do not issue API requests.
     parseFile,
     parseAnswers,
     exampleFile: () => ({name: 'mock-01.md', text: example}),
+    // 정적 목업 모드의 편집기: 파일은 메모리에만 둔다 (~ 은 /root, 상대 경로는 /root 기준)
+    readFile: ({host, path}) => {
+      const p = mockPath(path), key = `${host}:${p}`;
+      return Promise.resolve({path: p, exists: mockFiles.has(key), text: mockFiles.get(key) || '', vimrc: mockFiles.get(`${host}:/root/.vimrc`) || ''});
+    },
+    writeFile: ({host, path, text}) => {
+      const p = mockPath(path); mockFiles.set(`${host}:${p}`, text);
+      return Promise.resolve({path: p, bytes: new TextEncoder().encode(text).length});
+    },
     // Local clock bridge; real server owns pause/resume accounting.
     bindLog: log => { clock = log; },
     // POST /api/exam/resume {log, answers?}; replay stored output, never execute cmd.
