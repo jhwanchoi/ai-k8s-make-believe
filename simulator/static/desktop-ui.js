@@ -28,6 +28,12 @@ window.DesktopUI = class {
     document.addEventListener('keydown', event => { if (event.key === 'Escape') document.querySelectorAll('.menu').forEach(menu => { if (menu.open) { menu.open = false; menu.querySelector('summary').focus(); } }); });
     document.addEventListener('click', event => { document.querySelectorAll('.menu').forEach(menu => { if (!menu.contains(event.target)) menu.open = false; }); });
   }
+  // 웹 VNC 는 창이 원격 화면보다 좁으면 축소 모드가 돼 글자가 작아진다. 원격 화면 크기를 창에 맞추게 한다
+  streamUrl() {
+    const url = new URL(window.SIM_BROWSER);
+    if (!url.searchParams.has('resize')) url.searchParams.set('resize', 'remote');
+    return url.href;
+  }
   status(text) { this.$('browser-status').textContent = text; }
   syncTerminals() {
     const container = this.$('window-buttons'); container.replaceChildren();
@@ -43,7 +49,7 @@ window.DesktopUI = class {
     this.$('desktop-windows').classList.remove('firefox-closed');
     this.$('firefox-task').setAttribute('aria-pressed', 'true');
     this.$('applications-menu').open = false;
-    if (this.streaming) { if (!this.$('browser-frame').getAttribute('src')) this.$('browser-frame').src = window.SIM_BROWSER; this.$('browser-frame').focus(); return; }
+    if (this.streaming) { if (!this.$('browser-frame').getAttribute('src')) this.$('browser-frame').src = this.streamUrl(); this.$('browser-frame').focus(); return; }
     if (!this.$('browser-frame').getAttribute('src')) this.navigate(this.url);
     this.$('browser-address').focus();
   }
