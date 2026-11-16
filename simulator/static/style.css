@@ -211,3 +211,7 @@ button:focus-visible,#exam-list label:has(input:focus-visible){outline:2px solid
 .term-editor-help b{background:#d7d7d7;color:#000;font-weight:400;margin-right:6px}
 .start-progress.error{background:#fbeaea;color:#8a1f28}
 .start-progress.error::before{content:"!";border:0;animation:none;width:auto;height:auto;font-weight:700}
+/* vim 명령줄(:wq, /검색): codemirror-vim 은 입력칸 글자색을 정하지 않아 어두운 배경에서 검은 글자로 안 보였다 */
+.term-editor-body .cm-panels{background:#050505;color:#eee;border-top:0}
+.term-editor-body .cm-vim-panel,.term-editor-body .cm-vim-panel input{color:#eee;background:#050505;caret-color:#eee}
+.term-editor-body .cm-vim-panel input{padding:0;margin:0}.term-editor-body .cm-vim-panel{padding:0 2px}
