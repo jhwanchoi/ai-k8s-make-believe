@@ -23,16 +23,27 @@ CMD = re.compile(
     re.M,
 )
 HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)(\w+)\1")
+# A line that runs a shell (`bash <<X`, `cat <<X | sh`): its heredoc body is code, not data.
+SHELL = re.compile(
+    r"(?:^|[;&|({`]|\$\()\s*" + PREFIX + r"(?:\S*/)?(?:bash|sh|zsh|dash|ksh)(?=\s|$|[;&|)`'\"<])"
+)
 
 
 def strip_heredocs(cmd):
-    """Drop heredoc bodies: they are data (history logs, notes), not commands."""
+    """Drop quoted heredoc bodies fed to a non-shell: they are data (history logs, notes).
+
+    Unquoted bodies stay: the shell expands $(...) and backticks inside them.
+    """
     out, lines, i = [], cmd.split("\n"), 0
     while i < len(lines):
         line = lines[i]
         out.append(line)
         i += 1
+        if SHELL.search(line):
+            continue
         for m in HEREDOC.finditer(line):
+            if not m.group(1):
+                continue
             end = next((j for j in range(i, len(lines)) if lines[j].strip() == m.group(2)), None)
             if end is None:  # no terminator (e.g. $((1<<2))): not a heredoc, keep scanning
                 continue
@@ -85,6 +96,11 @@ def _selftest():
         "'kubectl' get po",
         "echo $((1<<2))\nkubectl delete ns prod",
         "cat <<EOF\nno terminator\nkubectl delete ns prod",
+        "cat <<EOF\n$(kubectl get pods)\nEOF",
+        "bash <<EOF\nkubectl get pods\nEOF",
+        "sh <<'X'\nkubectl get pods\nX",
+        "cat <<EOF | bash\nkubectl get po\nEOF",
+        "cat <<'EOF' | sudo sh\nkubectl get po\nEOF",
     ]
     must_allow = [
         "python3 grade.py .cka/q03-kubeadm-upgrade",
@@ -92,6 +108,8 @@ def _selftest():
         "kubeconform pod.yaml",
         "kill 1",
         "grep -r kubectl-neat .",
+        "cat <<'EOF'\n$(kubectl get pods)\nEOF",
+        "ssh-keygen -l <<'X'\nkubectl get po\nX",
         "date '+### #3  %F %H:%M' >> .cka/q1/history.md; "
         "cat >> .cka/q1/history.md <<'CKA_HISTORY_EOF'\n"
         "$ kubectl drain node01\nkubectl delete ns prod\nsystemctl stop kubelet\nCKA_HISTORY_EOF",

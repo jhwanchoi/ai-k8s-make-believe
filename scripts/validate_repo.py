@@ -3,7 +3,7 @@
 
 1. plugin.json과 marketplace.json이 올바른 JSON이고, 플러그인 이름이 서로 맞고, 아이콘이 실제로 있는지
 2. skill, agent, command 파일의 frontmatter에 필요한 필드가 있는지 (skill과 agent는 name이 폴더/파일 이름과 같은지)
-3. scripts/grade.py, scripts/guard.py, scripts/import_cka_prep.py의 selftest가 통과하는지
+3. scripts/grade.py, scripts/guard.py, scripts/import_cka_prep.py, scripts/diagram.py, scripts/build_kubectl_index.py, scripts/build_kubectl_flags_js.py, simulator/server.py의 selftest가 통과하는지
 4. 추적 중인 파일에 연습 상태(.cka/), kubeconfig 비밀값, 개인 키, 이메일, 휴대전화 번호 형식이 없는지
 
 표준 라이브러리만 사용한다.
@@ -67,8 +67,10 @@ def check_manifests() -> None:
 
 
 def check_selftests() -> None:
-    for script in ("grade.py", "guard.py", "import_cka_prep.py"):
-        result = subprocess.run([sys.executable, "-I", str(ROOT / "scripts" / script), "--selftest"],
+    scripts = [f"scripts/{name}" for name in ("grade.py", "guard.py", "import_cka_prep.py", "diagram.py",
+                                              "build_kubectl_index.py", "build_kubectl_flags_js.py")]
+    for script in scripts + ["simulator/server.py"]:
+        result = subprocess.run([sys.executable, "-I", str(ROOT / script), "--selftest"],
                                 capture_output=True, text=True)
         if result.returncode != 0:
             errors.append(f"{script} selftest 실패: {(result.stderr or result.stdout).strip()[-300:]}")

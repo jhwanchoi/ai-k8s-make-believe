@@ -40,7 +40,7 @@ window.ExamLog = class {
     return {elapsed, remaining: Math.max(0, events[0].minutes * 60 - elapsed), paused: since === null, ended};
   }
   static terminal(n, host) {
-    return {n, host, entries: [], history: [], draft: '', historyIndex: 0, savedDraft: '', phase: 'idle', status: '명령을 입력하세요.'};
+    return {n, host, entries: [], history: [], draft: '', historyIndex: 0, savedDraft: '', phase: 'idle', status: ''};
   }
   static question(p) {
     return {contexts: Object.assign(Object.create(null), p.contexts || {[p.host]: p.context}), defaultContext: p.context, active: 1, ratio: 50, terminals: [this.terminal(1, p.host)]};

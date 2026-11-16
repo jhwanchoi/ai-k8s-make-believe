@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """ai-k8s-make-believe deterministic grader: .cka/<id>/state.json vs the ```json rubric block in answer-key.md.
 
-Usage: grade.py <problem_dir> | --selftest
-Prints one line per rubric item (PASS / FAIL / MANUAL) and a SCORE line.
-MANUAL items (op=llm) are judged by the grader agent.
+Usage: grade.py <problem_dir> | --check-init <problem_dir> | --selftest
+Prints one line per rubric item (PASS / FAIL / MANUAL) and a SCORE line. FAIL lines end with
+the actual value at the path (never the expected one). MANUAL items (op=llm) are judged by the grader agent.
+--check-init lints the rubric against state.init.json and exits 1 if it is already solved or its paths
+don't fit the state.
 """
 import json
 import re
@@ -11,6 +13,7 @@ import sys
 from pathlib import Path
 
 MISSING = object()
+ROOTS = {"clusters", "hosts", "meta"}
 
 
 def get(obj, path):
@@ -64,6 +67,30 @@ def check(item, state):
     return "PASS" if ok else "FAIL"
 
 
+def show(value, limit=120):
+    if value is MISSING:
+        return "<missing>"
+    text = json.dumps(value, ensure_ascii=False)
+    return text if len(text) <= limit else text[:limit] + "..."
+
+
+def lint_init(rubric, init):
+    """Problems that mean the rubric is wrong before the user types anything."""
+    problems = []
+    for item in rubric:
+        if item["op"] == "llm":
+            continue
+        path = item.get("path", [])
+        if not path or path[0] not in ROOTS:
+            problems.append(f"{item['id']}: path 는 {sorted(ROOTS)} 중 하나로 시작해야 합니다: {path}")
+        elif len(path) > 1 and get(init, path[:2]) is MISSING:
+            problems.append(f"{item['id']}: 초기 상태에 {path[:2]} 가 없습니다")
+    auto = [item for item in rubric if item["op"] != "llm"]
+    if auto and all(check(item, init) == "PASS" for item in auto):
+        problems.append("초기 상태에서 자동 채점 항목이 이미 모두 PASS 입니다")
+    return problems
+
+
 def load_rubric(text):
     m = re.search(r"```json rubric\s*\n(.*?)\n```", text, re.S)
     if not m:
@@ -83,8 +110,19 @@ def main(problem_dir):
         else:
             auto += pts
             got += pts if result == "PASS" else 0
-        print(f"{result:<6} {item['id']} ({pts}pt): {item.get('desc', '')}")
+        actual = f" [actual: {show(get(state, item.get('path', [])))}]" if result == "FAIL" else ""
+        print(f"{result:<6} {item['id']} ({pts}pt): {item.get('desc', '')}{actual}")
     print(f"SCORE auto {got}/{auto}, manual {manual}pt pending")
+
+
+def check_init(problem_dir):
+    d = Path(problem_dir)
+    init = json.loads((d / "state.init.json").read_text())
+    problems = lint_init(load_rubric((d / "answer-key.md").read_text()), init)
+    for p in problems:
+        print(f"PROBLEM {p}")
+    print("CHECK-INIT ok" if not problems else f"CHECK-INIT failed ({len(problems)})")
+    return 1 if problems else 0
 
 
 def _selftest():
@@ -118,12 +156,25 @@ def _selftest():
     assert ok("regex", m_yaml, r"^image: nginx:1\.\d+$")
     assert check({"id": "t", "op": "llm"}, state) == "MANUAL"
     assert load_rubric('x\n```json rubric\n[{"id": "a", "op": "llm"}]\n```\n') == [{"id": "a", "op": "llm"}]
+    assert show(MISSING) == "<missing>" and show({"a": 1}) == '{"a": 1}'
+    assert show("x" * 300).endswith("...") and len(show("x" * 300)) == 123
+
+    exists_x = {"id": "x", "op": "exists", "path": ["hosts", "cp", "files", "/opt/x.db"]}
+    new_svc = {"id": "n", "op": "exists", "path": ["clusters", "c1", "objects", "prod/service/new"]}
+    llm = {"id": "l", "op": "llm"}
+    assert lint_init([new_svc, llm], state) == []
+    assert any("이미 모두 PASS" in p for p in lint_init([exists_x], state))
+    assert lint_init([llm], state) == []  # nothing automatic to lint
+    assert any("초기 상태에" in p for p in lint_init([dict(new_svc, path=["clusters", "c9", "objects"])], state))
+    assert any("시작해야" in p for p in lint_init([dict(new_svc, path=["objects", "prod/service/new"])], state))
     print("selftest ok")
 
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--selftest"]:
         _selftest()
+    elif len(sys.argv) == 3 and sys.argv[1] == "--check-init":
+        sys.exit(check_init(sys.argv[2]))
     elif len(sys.argv) == 2:
         main(sys.argv[1])
     else:

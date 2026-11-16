@@ -1,5 +1,5 @@
 ---
-description: 정답과 해설을 바로 보고 현재 문제 폴더를 정리한다 (오답 노트에 기록)
+description: 정답과 해설을 바로 보고 현재 문제 폴더를 .cka/archive/ 로 옮긴다 (오답 노트에 기록)
 ---
 
 1. 이 대화에서 아직 안 불렀으면 Skill 도구로 `ai-k8s-make-believe:cka-rules` 를 부른다. `.cka/current` 가 없으면 진행 중인 문제가 없다고 알리고 끝낸다.

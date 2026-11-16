@@ -93,17 +93,20 @@ small{font-size:12px;color:#566675}
 .terminal-head strong{font-weight:500;overflow-wrap:anywhere}
 .terminal-context{color:#c5d1d5;font-size:10px}
 .terminal-head button{margin-left:auto;padding:2px 5px;font-size:10px;background:#555a62;color:#fff;border-color:#777}
-.terminal{flex:1;min-height:30px;overflow:auto;padding:10px 12px;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
-.terminal pre{font:inherit;white-space:pre-wrap;margin:0 0 16px}
-.terminal .input-line{color:#75e68f}
+.terminal-scroll{flex:1;min-height:30px;overflow:auto;padding:10px 12px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;cursor:text}
+.terminal{white-space:pre-wrap;overflow-wrap:anywhere;outline:0}
+.terminal pre{font:inherit;white-space:pre-wrap;margin:0}
+.terminal .input-line{color:#eee}
+.terminal .prompt{color:#75e68f}
 .response-note{font-size:11px;background:#23272b;color:#cbd2d6;padding:7px 12px;white-space:pre-wrap;max-height:70px;overflow:auto}
 .response-note:empty{display:none}
-.terminal-status{padding:4px 12px;color:#b8c4c8;font-size:11px}
+.terminal-status{color:#8b979d;font-size:11px}
+.terminal-status:empty{display:none}
 .terminal-status.busy::before{content:'● ';color:#75e68f}
-.terminal-form{padding:0 12px 8px;display:flex;flex-wrap:wrap;gap:5px;flex-shrink:0}
-.terminal-form label{color:#75e68f;font:12px monospace;width:100%;margin:0}
-.terminal-form textarea{width:100%;background:#080808;border-color:#444;color:#eee;font:12px/1.5 monospace;min-height:40px;max-height:120px;padding:5px}
-.terminal-form button{margin-left:auto;font-size:11px;padding:4px 8px;background:#333;color:#ddd;border-color:#555}
+.terminal-form{display:flex;align-items:flex-start;margin:0}
+.terminal-pane.running .terminal-form{display:none}
+.terminal-form label{color:#75e68f;font:inherit;margin:0 .6ch 0 0;white-space:pre;flex:none}
+.terminal-form textarea{flex:1;min-width:0;height:1.5em;background:transparent;border:0;outline:0;color:#eee;font:inherit;padding:0;margin:0;resize:none;overflow:hidden;caret-color:#eee}
 .terminal-divider{background:#8a8e94;cursor:row-resize;touch-action:none}
 .terminal-divider:hover,.terminal-divider:focus-visible{background:#6edc92}
 .key-help{font-size:10px;color:#c0c7cb;padding:5px 8px;background:#292d32}
@@ -156,3 +159,59 @@ dialog::backdrop{background:#10243588}
 .attempt-table tfoot{background:#f1f6fc}
 
 #exam-list input[type="radio"]{width:auto;margin-right:8px}
+
+/* 시험 시작 진행 표시: 버튼 바로 아래, 경과 초와 회전 표시 */
+.start-progress{display:flex;align-items:center;gap:8px;margin:10px 0;padding:10px 12px;border-radius:6px;background:#e7edf6;color:#243b5e;font-size:14px;font-weight:600}
+.start-progress[hidden]{display:none}
+.start-progress::before{content:"";width:14px;height:14px;flex:none;border:2px solid #9fb3cf;border-top-color:#243b5e;border-radius:50%;animation:start-spin .8s linear infinite}
+@keyframes start-spin{to{transform:rotate(360deg)}}
+
+/* ---- 시작 화면: 시험 고르기 ---- */
+#exam-list{display:grid;gap:8px;margin-top:18px}
+#exam-list label{display:flex;align-items:center;gap:10px;margin:0;padding:11px 13px;border:1px solid var(--line);border-radius:6px;font-weight:400;font-size:13px;color:#3a4a58;cursor:pointer;overflow-wrap:anywhere}
+#exam-list label:hover{border-color:#9fb3cf;background:#f7f9fc}
+#exam-list label:has(input:checked){border-color:#246aa8;background:#eef4fb;color:#1c3550}
+#exam-list input{width:auto;margin:0;accent-color:#246aa8}
+#exam-selection{margin-top:14px;padding:18px 18px 14px;border:1px solid #c9d6e6;border-radius:8px;background:#f7f9fc}
+#selected-exam-name{margin:0 0 10px;font:600 15px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#1c2833;overflow-wrap:anywhere}
+#selected-exam-name::before{content:"$ ";color:#2f9e55}
+#exam-attempts{font-size:13px;color:#546b7b}
+#exam-selection #solution-note:empty{display:none}
+#exam-selection .actions{flex-direction:column;align-items:stretch;gap:6px;margin-top:16px}
+#exam-selection .actions .primary{padding:12px 16px;font-size:15px;font-weight:700;border-radius:6px;text-align:left;display:flex;justify-content:space-between;align-items:center}
+#exam-selection .actions .primary::after{content:"→";font-weight:400}
+.quiet{align-self:flex-start;border:0;background:none;padding:4px 2px;font-size:12px;text-decoration:underline;text-underline-offset:3px}
+.quiet:hover{background:none;color:#7d1520}
+.or{display:flex;align-items:center;gap:10px;margin:18px 0 10px;font-size:12px;color:#8696a4}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+#start-example{width:100%;padding:10px 14px;border-radius:6px;background:#fff;color:#3a4a58}
+#start-example:hover{background:#f2f5f8}
+button:focus-visible,#exam-list label:has(input:focus-visible){outline:2px solid #246aa8;outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.start-progress::before{animation:none}}
+.attempts-fold summary{cursor:pointer;color:#3a4a58;list-style:none;display:inline-flex;align-items:center;gap:6px}
+.attempts-fold summary::-webkit-details-marker{display:none}
+.attempts-fold summary::before{content:"▸";font-size:11px;color:#8696a4;transition:transform .15s}
+.attempts-fold[open] summary::before{transform:rotate(90deg)}
+.attempts-fold summary::after{content:"자세히";font-size:12px;color:#246aa8;text-decoration:underline;text-underline-offset:3px}
+.attempts-fold[open] summary::after{content:"접기"}
+.attempts-fold .attempt-group{margin-top:10px}
+.attempts-fold .attempt-group h3,.attempts-fold .attempt-group>p{display:none}
+.attempts-fold .attempt-table{max-height:320px;overflow:auto}
+
+/* vim · nano 편집기: 터미널 창 안을 채운다 */
+.terminal-pane.editing .terminal-scroll{display:none}
+.term-editor{flex:1;min-height:0;display:flex;flex-direction:column;background:#050505;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.term-editor-body{flex:1;min-height:0}
+.term-editor-body .cm-editor{height:100%;font-size:13px}
+.term-editor-body .cm-scroller{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.term-editor-body .cm-vim-panel,.term-editor-body .cm-vim-panel input{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+.term-editor-title{display:flex;justify-content:space-between;gap:12px;padding:0 8px;background:#d7d7d7;color:#000;white-space:pre}
+.term-editor-msg{min-height:1.5em;text-align:center;color:#eee}
+.term-editor-help{display:flex;gap:24px;padding:0 8px 4px;color:#eee}
+.term-editor-help b{background:#d7d7d7;color:#000;font-weight:400;margin-right:6px}
+.start-progress.error{background:#fbeaea;color:#8a1f28}
+.start-progress.error::before{content:"!";border:0;animation:none;width:auto;height:auto;font-weight:700}
+/* vim 명령줄(:wq, /검색): codemirror-vim 은 입력칸 글자색을 정하지 않아 어두운 배경에서 검은 글자로 안 보였다 */
+.term-editor-body .cm-panels{background:#050505;color:#eee;border-top:0}
+.term-editor-body .cm-vim-panel,.term-editor-body .cm-vim-panel input{color:#eee;background:#050505;caret-color:#eee}
+.term-editor-body .cm-vim-panel input{padding:0;margin:0}.term-editor-body .cm-vim-panel{padding:0 2px}

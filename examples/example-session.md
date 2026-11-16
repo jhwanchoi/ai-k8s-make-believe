@@ -92,7 +92,7 @@ web-svc-7xq2d   IPv4          8080    10.244.1.12,10.244.2.7   5s
 > - `--show-labels`의 LABELS 열은 Deployment 자신의 라벨입니다. Pod를 고르는 기준은 `spec.selector`이니 `kubectl get deploy web -n prod -o jsonpath='{.spec.selector}'`로 확인하세요.
 > - Service를 만든 뒤 바로 endpoints를 확인하는 습관을 들이면 시험에서 조용한 실패를 놓치지 않습니다.
 >
-> 오답 노트에 기록하고 문제 폴더를 정리했습니다. 다음 문제는 `/ai-k8s-make-believe:cka-load`로 불러오세요.
+> 오답 노트에 기록하고 문제 폴더를 `.cka/archive/`로 옮겼습니다. 다음 문제는 `/ai-k8s-make-believe:cka-load`로 불러오세요.
 
 `.cka/wrong-notes.md`에는 이렇게 남습니다.
 

@@ -12,7 +12,7 @@
 
 - 가상 출력 형식을 바꾼다면 실제 출력 예시와 확인한 버전(Kubernetes, kubectl, etcdctl 등)을 PR에 적어 주세요.
 - 출제 범위나 도메인 비중을 바꾼다면 [cncf/curriculum](https://github.com/cncf/curriculum) 근거 링크를 붙여 주세요.
-- 루브릭 `op`나 `state.json` 스키마를 바꾼다면 `scripts/grade.py`와 그 selftest도 함께 고쳐 주세요.
+- 루브릭 `op`나 `state.json` 스키마를 바꾼다면 `scripts/grade.py`, `scripts/diagram.py`와 그 selftest도 함께 고쳐 주세요.
 
 ## 문제와 예시
 
