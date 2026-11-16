@@ -17,6 +17,7 @@
     exampleFile: local.exampleFile,
     bindLog: local.bindLog,
     getExam: () => call('GET', '/api/exam'),
+    abortExam: () => call('POST', '/api/exam/abort', {}),
     resetAttempts: ({exam}) => call('POST', '/api/attempts/reset', {exam}),
     readFile: ({host, path}) => call('GET', `/api/file?host=${encodeURIComponent(host)}&path=${encodeURIComponent(path)}`),
     writeFile: ({host, path, text, editor}) => call('POST', '/api/file', {host, path, text, editor}),

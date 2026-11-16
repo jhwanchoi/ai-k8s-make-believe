@@ -89,15 +89,26 @@
     $('solution-note').textContent = hasSolution(entry) ? '' : '풀이 파일이 없어 종료 후 풀이를 볼 수 없습니다';
     const saved = savedFor(entry), next = entry.attempts.length + 1;
     // Server mode: a browser log can be resumed only while the server still holds the same exam.
-    const resumable = saved && (!window.SIM_SERVER || (serverExam && !serverExam.ended && serverExam.title === saved.events?.[0]?.title));
+    // 브라우저 기록이 없어도 서버에 같은 시험이 진행 중이면 서버 상태로 이어 푼다
+    const resumable = (saved && (!window.SIM_SERVER || serverHolds(entry, saved.events?.[0]?.title))) || serverHolds(entry);
     $('catalog-resume').hidden = !resumable;
     $('catalog-resume').textContent = `${next}차시 이어서 풀기`;
-    $('catalog-start').textContent = `${saved ? '버리고 ' : ''}${next}차시 새로 시작`;
+    $('catalog-start').textContent = `${saved || serverBusy() ? '버리고 ' : ''}${next}차시 새로 시작`;
     // 주 동작 하나만 크게: 이어 풀 수 있으면 이어 풀기, 아니면 새로 시작. 기록을 버리는 동작은 작은 빨간 글자 버튼
     $('catalog-start').className = resumable ? 'quiet danger' : 'primary';
     $('catalog-start').disabled = $('catalog-resume').disabled = !!entry.error || catalogBusy;
   }
   const hasSolution = entry => !!(entry.solution || entry.serverSolution);
+  const serverBusy = () => !!(window.SIM_SERVER && serverExam && !serverExam.ended);
+  const serverHolds = (entry, title) => {
+    if (!serverBusy()) return false;
+    try { return serverExam.title === (title || api.parseFile(entry.text).title); } catch { return false; }
+  };
+  // 시작 실패를 버튼 바로 아래에 보여 준다 (맨 위 안내 줄만으로는 안 보인다)
+  function startError(message) {
+    notice(message);
+    const p = $('start-progress'); p.textContent = message; p.classList.add('error'); p.hidden = false;
+  }
   async function refreshCatalog(load) {
     const token = ++catalogToken;
     catalogSelection = null; $('exam-selection').hidden = true;
@@ -136,7 +147,9 @@
     if (catalogBusy || busy || readingAnswers || !catalogSelection || catalogSelection.error) return;
     if (!resuming && !$('minutes').reportValidity()) return;
     const entry = catalogSelection, saved = savedFor(entry);
-    if (!resuming && saved && !window.confirm('진행 중인 로그를 버리고 새 차시를 시작할까요?')) return;
+    if (!resuming && (saved || serverBusy()) && !window.confirm(serverBusy()
+      ? `서버에 진행 중인 시험(${serverExam.title})이 있습니다. 버리고 새 차시를 시작할까요? 진행 중인 문제는 연습 폴더 .cka/backup/ 에 보관됩니다.`
+      : '진행 중인 로그를 버리고 새 차시를 시작할까요?')) return;
     catalogBusy = true;
     $('practice-folder').disabled = true;
     $('exam-list').inert = $('direct-files').inert = true;
@@ -152,16 +165,18 @@
       }
       selectedFile = {name: entry.file.name, text: entry.text};
       if (resuming) {
-        if (!saved) throw Error('이어 풀 기록이 없습니다.');
-        await resumeSaved(saved);
+        if (saved && (!window.SIM_SERVER || serverHolds(entry, saved.events?.[0]?.title))) await resumeSaved(saved);
+        else if (serverHolds(entry)) await adoptServerExam(selectedFile);
+        else throw Error('이어 풀 기록이 없습니다.');
       } else {
+        if (serverBusy()) { await api.abortExam(); serverExam = null; }
         if (saved) {
           if (localStorage.getItem(saved.key) !== saved.log) throw Error('로그가 변경되었습니다. 다시 선택하세요.');
           localStorage.removeItem(saved.key);
         }
         await start(selectedFile, selectedAnswers);
       }
-    } catch (error) { notice(error.message); }
+    } catch (error) { startError(error.message); }
     finally {
       catalogBusy = false; $('practice-folder').disabled = false;
       $('exam-list').inert = $('direct-files').inert = false;
@@ -171,6 +186,20 @@
   $('catalog-start').onclick = () => beginCatalog(false);
   $('catalog-resume').onclick = () => beginCatalog(true);
   const resumeUI = new window.ResumeUI({container: $('resume-cards'), onResume: resumeSaved, onError: notice});
+  // 서버에 진행 중인 시험을 브라우저 기록 없이 이어 푼다. 남은 시간은 서버 종료 시각 기준, 이전 터미널 화면은 없다
+  async function adoptServerExam(file) {
+    const current = await api.getExam();
+    if (!current || current.ended) throw Error('서버에 진행 중인 시험이 없습니다.');
+    const key = window.ExamLog.findKey(file.text);
+    let storageDisabled = false;
+    try { window.ExamLog.archive(key); } catch { storageDisabled = true; }
+    const expected = localStorage.getItem(key), minutes = Math.max(1, Math.ceil((current.ends_at - Date.now() / 1000) / 60));
+    exam = current; ownershipLost = false;
+    eventLog = new window.ExamLog({onError: storageNotice, storageDisabled, key, expected, onConflict: loseOwnership});
+    eventLog.append('start', {title: exam.title, problemText: file.text, minutes});
+    installExam();
+    notice('서버에서 진행 중인 시험을 이어서 풉니다. 이전 터미널 화면은 복원되지 않습니다.');
+  }
   function installExam(restored = null) {
     terminals.reset(); desktop.closeFirefox(); expired = false;
     $('exam').inert = $('exam-menus').inert = ownershipLost;
@@ -230,9 +259,9 @@
     $('report-rows').replaceChildren();
     notice(MOCK ? '가상 시험 환경을 준비하고 있습니다. 약 1~3초 걸립니다.' : 'Claude 가 1번 문제 환경을 만들고 있습니다. 몇 분 걸릴 수 있습니다.');
     // 버튼 바로 아래에 경과 시간을 보여 준다 (서버 모드는 1~2분 걸린다)
-    const began = Date.now(), progress = $('start-progress');
+    const began = Date.now(), progress = $('start-progress'); let failed = '';
     const showProgress = () => { progress.textContent = `${MOCK ? '시험을 준비하는 중' : 'Claude 가 1번 문제 환경을 만드는 중'} · ${Math.round((Date.now() - began) / 1000)}초${MOCK ? '' : ' (보통 1~2분)'}`; };
-    progress.hidden = false; showProgress();
+    progress.classList.remove('error'); progress.hidden = false; showProgress();
     const progressTimer = setInterval(showProgress, 1000);
     try {
       exam = await api.startExam({file, answers, minutes: Number($('minutes').value)});
@@ -242,8 +271,8 @@
       installExam();
       notice(MOCK ? '목업 모드 · 응답과 점수는 고정 예시입니다. 실제 명령을 실행하지 않습니다.' : 'Claude 시뮬레이션 · 명령 하나에 수십 초 걸릴 수 있습니다. 실제 명령은 실행하지 않습니다.');
       terminals.focus();
-    } catch (error) { notice(error.message); }
-    finally { clearInterval(progressTimer); progress.hidden = true; $('start-file').disabled = !selectedFile; $('start-example').disabled = $('file').disabled = $('answers-file').disabled = false; }
+    } catch (error) { failed = error.message; }
+    finally { clearInterval(progressTimer); progress.hidden = true; if (failed) startError(failed); $('start-file').disabled = !selectedFile; $('start-example').disabled = $('file').disabled = $('answers-file').disabled = false; }
   }
   function tick() {
     if (!exam || exam.ended) return;

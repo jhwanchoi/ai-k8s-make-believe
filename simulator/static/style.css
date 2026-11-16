@@ -209,3 +209,5 @@ button:focus-visible,#exam-list label:has(input:focus-visible){outline:2px solid
 .term-editor-msg{min-height:1.5em;text-align:center;color:#eee}
 .term-editor-help{display:flex;gap:24px;padding:0 8px 4px;color:#eee}
 .term-editor-help b{background:#d7d7d7;color:#000;font-weight:400;margin-right:6px}
+.start-progress.error{background:#fbeaea;color:#8a1f28}
+.start-progress.error::before{content:"!";border:0;animation:none;width:auto;height:auto;font-weight:700}

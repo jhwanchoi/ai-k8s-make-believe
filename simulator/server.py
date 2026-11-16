@@ -589,7 +589,7 @@ def make_handler(practice, claude, exams, port, browser_url=None):
                 return
             routes = {"/api/exam/start": self.start, "/api/exam/goto": self.goto, "/api/submit": self.submit,
                       "/api/exam/end": self.end, "/api/cmd": self.cmd, "/api/file": self.save,
-                      "/api/attempts/reset": self.reset_attempts}
+                      "/api/attempts/reset": self.reset_attempts, "/api/exam/abort": self.abort}
             route = routes.get(self.path)
             if not route:
                 return self._json(404, {"error": "not found"})
@@ -647,6 +647,27 @@ def make_handler(practice, claude, exams, port, browser_url=None):
                 raise ValueError("문항 번호가 범위를 벗어났습니다.")
             claude.run("goto", f"{PLUGIN}cka-exam goto {n}")
             self._json(200, exams.summary())
+
+        def abort(self, body):
+            """진행 중인 시험을 채점 없이 버린다. 문제 폴더 · exam.json · 세션은 .cka/backup/aborted-<시각>/ 으로 옮긴다."""
+            cka = practice / ".cka"
+            plugin = exams.plugin_exam() or {}
+            names = {p.get("id") for p in plugin.get("problems", []) if p.get("id")}
+            try:
+                names.add((cka / "current").read_text().strip())
+            except OSError:
+                pass
+            names = {n for n in names if n and "/" not in n and n not in (".", "..")}
+            moving = [cka / n for n in sorted(names)] + [cka / f for f in
+                      ("exam.json", "current", "server-exam.json", "server-session.json")]
+            moving = [m for m in moving if m.exists()]
+            if not moving:
+                raise ValueError("진행 중인 시험이 없습니다.")
+            backup = cka / "backup" / f"aborted-{time.strftime('%Y%m%d-%H%M%S')}"
+            backup.mkdir(parents=True)
+            for m in moving:
+                m.rename(backup / m.name)
+            self._json(200, {"moved": [m.name for m in moving], "backup": str(backup.relative_to(practice))})
 
         def reset_attempts(self, body):
             """한 시험의 차시 기록을 지워 다음 시작을 1차시로. 지운 줄은 .cka/backup/ 에 옮겨 되돌릴 수 있게 둔다."""
