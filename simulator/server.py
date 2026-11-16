@@ -588,7 +588,8 @@ def make_handler(practice, claude, exams, port, browser_url=None):
             if not self._guard():
                 return
             routes = {"/api/exam/start": self.start, "/api/exam/goto": self.goto, "/api/submit": self.submit,
-                      "/api/exam/end": self.end, "/api/cmd": self.cmd, "/api/file": self.save}
+                      "/api/exam/end": self.end, "/api/cmd": self.cmd, "/api/file": self.save,
+                      "/api/attempts/reset": self.reset_attempts}
             route = routes.get(self.path)
             if not route:
                 return self._json(404, {"error": "not found"})
@@ -646,6 +647,28 @@ def make_handler(practice, claude, exams, port, browser_url=None):
                 raise ValueError("문항 번호가 범위를 벗어났습니다.")
             claude.run("goto", f"{PLUGIN}cka-exam goto {n}")
             self._json(200, exams.summary())
+
+        def reset_attempts(self, body):
+            """한 시험의 차시 기록을 지워 다음 시작을 1차시로. 지운 줄은 .cka/backup/ 에 옮겨 되돌릴 수 있게 둔다."""
+            name = exam_file(practice, body.get("exam")).name
+            path = practice / ".cka" / "exam-attempts.jsonl"
+            try:
+                lines = path.read_text().splitlines()
+            except OSError:
+                lines = []
+            def mine(line):
+                try:
+                    return Path(json.loads(line).get("exam", "")).name == name
+                except ValueError:
+                    return False
+            removed = [line for line in lines if mine(line)]
+            if removed:
+                backup = practice / ".cka" / "backup" / f"exam-attempts-{name[:-3]}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
+                backup.parent.mkdir(exist_ok=True)
+                backup.write_text("\n".join(removed) + "\n")
+                kept = [line for line in lines if not mine(line)]
+                path.write_text("\n".join(kept) + ("\n" if kept else ""))
+            self._json(200, {"removed": len(removed)})
 
         def submit(self, body):
             self._running()

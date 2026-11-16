@@ -68,6 +68,21 @@
       line.textContent = `지난 차시 ${entry.attempts.length}회 · 최근 ${last.total}% ${last.passed ? '합격' : '불합격'}`;
       window.AttemptsUI.renderAttempts(table, {groups: [{exam: entry.file.name, attempts: entry.attempts}], skipped: 0});
       fold.append(line, table);
+      // 서버 모드: 기록을 지우고 1차시부터 다시 (지운 기록은 서버 .cka/backup/ 에 보관)
+      if (window.SIM_SERVER && api.resetAttempts) {
+        const reset = document.createElement('button'); reset.type = 'button'; reset.className = 'quiet danger';
+        reset.textContent = '기록 지우고 1차시부터';
+        reset.onclick = async () => {
+          if (!window.confirm(`${entry.file.name} 의 지난 차시 ${entry.attempts.length}회 기록을 지우고 1차시부터 시작할까요? 지운 기록은 연습 폴더 .cka/backup/ 에 보관됩니다.`)) return;
+          try {
+            await api.resetAttempts({exam: entry.file.name});
+            await refreshCatalog(() => api.serverCatalog());
+            [...document.querySelectorAll('#exam-list input')].find(r => r.parentElement.textContent.startsWith(`${entry.file.name} `))?.click();
+            notice('차시 기록을 지웠습니다. 1차시부터 시작합니다.');
+          } catch (error) { notice(error.message); }
+        };
+        fold.append(reset);
+      }
       $('exam-attempts').replaceChildren(fold);
     }
     else $('exam-attempts').textContent = '첫 차시입니다';

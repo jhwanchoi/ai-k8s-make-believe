@@ -17,6 +17,7 @@
     exampleFile: local.exampleFile,
     bindLog: local.bindLog,
     getExam: () => call('GET', '/api/exam'),
+    resetAttempts: ({exam}) => call('POST', '/api/attempts/reset', {exam}),
     readFile: ({host, path}) => call('GET', `/api/file?host=${encodeURIComponent(host)}&path=${encodeURIComponent(path)}`),
     writeFile: ({host, path, text, editor}) => call('POST', '/api/file', {host, path, text, editor}),
     // 서버 연습 폴더의 exams/ 목록과 원문. 풀이는 보내지 않고 있다는 표시만 받는다
