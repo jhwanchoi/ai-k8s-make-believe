@@ -138,6 +138,15 @@ window.TerminalWorkspace = class {
   }
   keydown(event, t, form) {
     if (event.isComposing) return;
+    // "Display all N possibilities? (y or n)" 에 대한 답
+    if (t.pendingList) {
+      event.preventDefault();
+      const entry = t.entries.at(-1), key = event.key.toLowerCase();
+      if (key === 'y' || key === ' ') entry.response += `\n${this.columns(t, t.pendingList)}`;
+      if (['y', ' ', 'n', 'escape', 'backspace', 'delete'].includes(key) || event.ctrlKey) { t.pendingList = null; this.render(t); }
+      return;
+    }
+    if (event.key !== 'Tab') t.lastTab = null;
     if (event.ctrlKey && !event.metaKey && !event.altKey && this.shortcut(event, t)) { event.preventDefault(); return; }
     // Tab completes like bash (Shift+Tab still moves focus)
     if (event.key === 'Tab' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && window.Completion) {
@@ -159,9 +168,31 @@ window.TerminalWorkspace = class {
       try { data = this.api.complete ? await this.api.complete({host}) : {}; } catch { data = {}; }
       t.completion = {host, data};
     }
-    const r = window.Completion.complete(input.value, input.selectionStart, t.completion.data);
-    input.value = t.draft = r.text; input.setSelectionRange(r.cursor, r.cursor);
-    t.view.note.textContent = r.candidates.join('   ');
+    const before = input.value, r = window.Completion.complete(before, input.selectionStart, t.completion.data);
+    this.setInput(t, r.text, r.cursor);
+    // bash 처럼: 첫 Tab 은 공통 부분까지만. 더 채울 게 없는 상태에서 Tab 을 또 누르면 후보를 열로 찍는다
+    if (r.candidates.length < 2) { t.lastTab = null; return; }
+    if (t.lastTab !== r.text || r.text !== before) { t.lastTab = r.text; return; }
+    t.lastTab = null;
+    if (r.candidates.length > 100) { // readline completion-query-items 기본값
+      t.pendingList = r.candidates;
+      t.entries.push({text: r.text, host: t.host, response: `Display all ${r.candidates.length} possibilities? (y or n)`, local: true});
+    } else t.entries.push({text: r.text, host: t.host, response: this.columns(t, r.candidates), local: true});
+    this.render(t);
+  }
+  // ls · bash 목록처럼 세로로 채우는 열 배치. 폭은 터미널 창 너비 기준
+  columns(t, items) {
+    const probe = document.createElement('span'); probe.textContent = 'M'.repeat(10); probe.style.visibility = 'hidden';
+    t.view.output.append(probe); const charWidth = probe.getBoundingClientRect().width / 10 || 8; probe.remove();
+    const width = Math.max(20, Math.floor((t.view.scroll.clientWidth - 24) / charWidth));
+    const colWidth = Math.max(...items.map(s => s.length)) + 2, cols = Math.max(1, Math.floor(width / colWidth)), rows = Math.ceil(items.length / cols);
+    const lines = [];
+    for (let r = 0; r < rows; r++) {
+      let line = '';
+      for (let c = 0; c < cols; c++) { const item = items[c * rows + r]; if (item !== undefined) line += item.padEnd(colWidth); }
+      lines.push(line.trimEnd());
+    }
+    return lines.join('\n');
   }
   splitResponse(markdown) {
     const blocks = [];
