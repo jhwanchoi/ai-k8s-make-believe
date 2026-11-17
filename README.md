@@ -194,7 +194,12 @@ Grading and diagram scripts and archiving finished problems still ask first. Fin
 ## FAQ
 
 - **"Unknown command".** Commands need the `/ai-k8s-make-believe:` prefix. Right after installing, run `/reload-plugins`.
-- **Typing `:wq` closed Claude Code.** Claude Code treats a bare `:wq` or `:q` as an exit command. After `vim <file>` or `kubectl edit` in the terminal, paste the whole edited content as your next message; that counts as `:wq`. To quit without saving, type `$ :q!`. The web simulator has a real vim editor, so `:wq` works there.
+- **Typing `:wq` or `exit` closed Claude Code.** Claude Code treats a bare `exit`, `quit`, `:q` or `:wq` as its own exit command, and so are Ctrl+D and a double Ctrl+C. In the terminal:
+  - After `vim <file>` or `kubectl edit`, paste the whole edited content as your next message; that counts as `:wq`. To quit without saving, type `$ :q!`.
+  - To leave `ssh`, `sudo -i` or `kubectl exec -it`, type `$ exit`.
+  - Commands that run until Ctrl+C (`-w`, `logs -f`, `watch`, `port-forward`) print the current output once and stop, as if you had pressed Ctrl+C.
+  - The web simulator has a real terminal and vim editor, so these work there as usual.
+- **A command starting with `!` ran on my machine.** `!` switches Claude Code to bash mode, which runs the command locally and skips the simulator and its guard hook. Start simulator commands with `$`.
 - **I want to use real `kubectl` here.** Blocking it is intended. Use a directory without `.cka/`.
 - **Bash is blocked with a python3 message.** The hook needs `python3` to decide what to block, so without it everything is blocked in practice directories. Install `python3` and try again.
 - **Simulated output or grading is wrong.** [Open an issue](https://github.com/jhwanchoi/ai-k8s-make-believe/issues/new/choose) with the command, the simulated output, the real output and the Kubernetes version. Do not paste real exam questions or kubeconfigs.

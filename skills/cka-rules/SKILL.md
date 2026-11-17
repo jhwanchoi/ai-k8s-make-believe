@@ -22,6 +22,11 @@ web    1/1     Running   0          3m
 ````
 
 4. **언어.** 설명, 힌트, 안내는 사용자가 쓰는 언어로 한다. 가상 터미널 출력은 실제 도구처럼 영어로 둔다.
+5. **Claude Code 입력과 겹치는 것.** 실제 터미널 습관대로 치면 Claude Code 가 먼저 가로채는 입력이 있다. 사용자에게 그 입력을 시키지 않는다.
+   - `exit`, `quit`, `:q`, `:wq` 를 한 줄만 입력하면 Claude Code 가 끝난다. 셸에서 나오는 명령은 `$ exit` 처럼 `$` 를 붙이게 안내한다.
+   - Ctrl+C 를 두 번, Ctrl+D 를 누르면 Claude Code 가 끝난다. 그래서 Ctrl+C 로 멈춰야 하는 명령은 사용자가 바로 Ctrl+C 를 누른 것으로 보고 끝낸다 (아래 "명령 처리").
+   - `!` 로 시작하는 입력은 Claude Code 의 bash 모드라 이 시뮬레이터를 거치지 않고 사용자 컴퓨터에서 실제로 실행된다. 사용자가 `!` 로 시작하는 명령을 쓰려는 것 같으면 `$` 로 바꾸라고 안내한다.
+   - 이 대화에서 처음으로 명령을 처리할 때 (입력 첫 줄이 `# terminal=` 이 아닐 때만) 출력 끝에 한 번만 사용자 언어로 짧게 알린다: "명령은 `$` 로 시작하세요. `exit`, `:wq` 를 `$` 없이 치거나 Ctrl+C 를 두 번 누르면 Claude Code 가 종료되고, `!` 로 시작하면 내 컴퓨터에서 실제로 실행됩니다."
 
 ## 파일 구조
 
@@ -129,7 +134,10 @@ CKA_HISTORY_EOF
      - history 에는 `$ vim x.yaml` (또는 `$ kubectl edit ...`) 한 항목으로 남기고 변경 줄을 붙인다. `meta.cmd_count` 도 한 번만 올린다.
    - `kubectl apply/create -f`: YAML 문법, apiVersion/kind 조합, 필수 필드를 검사하고 통과하면 objects 에 반영한다.
    - static pod: `/etc/kubernetes/manifests/` 파일이 바뀌면 kubelet 이 반영한 것으로 보고 `kube-system/pod/<name>-<node>` 를 갱신한다.
-   - 전환: `kubectl config use-context` 는 meta.context, `ssh <node>` 와 `exit` 는 meta.host, `sudo -i` 는 meta.user 를 바꾼다.
+   - 전환: `kubectl config use-context` 는 meta.context, `ssh <node>` 와 `exit` 는 meta.host, `sudo -i` 는 meta.user 를 바꾼다. `exit` 는 `logout` 과 (ssh 였으면) `Connection to <node> closed.` 를 낸다.
+   - 셸 안으로 들어가는 명령 (`ssh`, `sudo -i`, `kubectl exec -it ... -- sh`, `kubectl run -it ... -- sh`, `kubectl debug -it`): 이 대화에서 처음이면 출력 뒤에 "나올 때는 `$ exit` 로 입력하세요. `$` 없이 `exit` 만 치면 Claude Code 가 종료됩니다." 를 붙인다. `exec -it`, `run -it`, `debug -it` 는 `meta.shell = {"kind": "container", "target": "<ns>/<pod>/<container>"}` 를 두고, `$ exit` 전까지 오는 명령은 그 컨테이너 안에서 실행한 것으로 시뮬레이션한다 (`kubectl` 이 없으면 `sh: kubectl: not found`). `$ exit` 에서 `meta.shell` 을 지운다.
+   - 끝나지 않고 계속 도는 명령 (`kubectl get -w`, `--watch`, `kubectl logs -f`, `kubectl events -w`, `journalctl -f`, `tail -f`, `watch ...`, `top`, `kubectl port-forward`, `kubectl proxy`, `etcdctl watch`, `crictl logs -f`): 지금 상태 한 번만 출력하고 (port-forward 는 `Forwarding from 127.0.0.1:<p> -> <p>`, proxy 는 `Starting to serve on 127.0.0.1:8001`) 마지막 줄에 `^C` 를 둔다. 사용자가 Ctrl+C 를 누를 필요가 없다는 것을 처음 한 번만 알린다.
+   - 화면을 넘기는 명령 (`less`, `more`, `man`, `kubectl explain` 의 긴 출력): 페이저 없이 전부 출력한다. `q` 를 누르라고 하지 않는다.
    - state 에 없는 리소스는 실제처럼 `NotFound`.
 5. `meta.cmd_count` 를 1 올리고 (Edit) history 에 append 한다.
 6. 가상 출력을 보여준다. 채점은 사용자가 `/ai-k8s-make-believe:cka-submit` 할 때만 한다. 맞았는지 틀렸는지 먼저 말하지 않는다.
