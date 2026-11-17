@@ -64,9 +64,9 @@ NAME      ENDPOINTS   AGE
 web-svc   <none>      40s
 ```
 
-> 점수 2/4. Service는 만들어졌는데 트래픽을 받을 대상이 없습니다. Service가 어떤 Pod를 고르는지 다시 확인해 보세요. (힌트 1/3)
+> 점수 2/4. Service는 만들어졌는데 트래픽을 받을 대상이 없습니다. 공식 문서에서 `service selector` 로 검색해 보세요. [Service](https://kubernetes.io/docs/concepts/services-networking/service/) 의 "Defining a Service" 섹션에서 Service가 Pod를 고르는 방법을 볼 수 있습니다. (힌트 1/4)
 
-정답이나 어느 루브릭 항목이 틀렸는지는 아직 알려주지 않습니다. 한 번 더 틀리면 원인을 좁히는 진단 출력과 함께 더 구체적인 위치를 짚어 줍니다.
+정답이나 어느 루브릭 항목이 틀렸는지는 아직 알려주지 않습니다. 첫 힌트는 공식 문서에서 무엇을 찾을지이고, 검색어는 실제로 찾아 보고 쓸 만한 페이지가 있는지 확인한 뒤 줍니다. 더 틀리면 방향, 원인을 좁히는 진단 출력과 위치 순으로 구체적이 됩니다.
 
 ## 4. 고치고 다시 제출
 

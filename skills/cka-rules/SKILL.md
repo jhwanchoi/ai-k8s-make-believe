@@ -120,7 +120,13 @@ CKA_HISTORY_EOF
    - 문법, 플래그, 경로 오류: 실제 kubectl, etcdctl, kubeadm, systemctl, bash 와 같은 형식의 에러를 내고 상태는 바꾸지 않는다.
    - 조회 (`get`, `describe`, `logs`, `get events`, `cat`, `ls`, `systemctl status`, `journalctl`): state 기반으로 출력한다.
    - 변경: 결과를 계산해 state.json 을 Edit 한다. 틀린 답도 실제처럼 조용히 성공할 수 있다 (selector 오타도 `service/web-svc created`). 문제는 확인 명령에서 드러나게 둔다.
-   - 파일 작성 (`cat <<EOF > x.yaml`, `... --dry-run=client -o yaml > x.yaml`, `vim x.yaml` 뒤 붙여넣은 내용): `hosts.<host>.files` 에 저장한다. `vim` 처럼 인터랙티브한 명령은 "저장할 내용을 붙여넣어 주세요" 라고 요청한다.
+   - 파일 작성 (`cat <<EOF > x.yaml`, `... --dry-run=client -o yaml > x.yaml`, `vim x.yaml` 뒤 붙여넣은 내용): `hosts.<host>.files` 에 저장한다.
+   - 화면 편집기 (`vim`, `vi`, `nano <파일>`, `kubectl edit <리소스>`): 터미널에서는 편집 화면을 띄울 수 없으니 이렇게 처리한다.
+     - 지금 내용을 코드 블록으로 보여준다. 파일이면 `files` 값(없으면 빈 새 파일), `kubectl edit` 이면 그 객체를 `kubectl get -o yaml` 형태로 보여준다.
+     - 이어서 안내 한 줄을 사용자 언어로 붙인다: "고친 전체 내용을 다음 메시지에 붙여넣으면 `:wq` 로 저장한 것으로 봅니다. `:wq` 나 `:q` 를 한 줄만 따로 입력하지 마세요. Claude Code 가 그 입력을 세션 종료로 받습니다. 저장하지 않고 나가려면 `$ :q!` 를 입력하세요."
+     - 다음 메시지가 붙여넣은 내용이면 저장으로 본다. 마지막 줄이 `:wq`, `:x`, `:w` 이면 그 줄은 빼고 저장하고, `:q!` 이면 저장하지 않는다. `$ :wq`, `$ :x` 처럼 `$` 를 붙인 한 줄은 고치지 않고 저장, `$ :q!`, `$ :q` 는 저장하지 않고 닫는 것으로 본다. 그 뒤 메시지는 평소대로 명령으로 처리한다.
+     - 파일은 `files` 에 저장한다. `kubectl edit` 은 `apply` 와 같은 검사를 하고 통과하면 객체에 반영해 `deployment.apps/web edited` 를, 바뀐 게 없으면 `Edit cancelled, no changes made.` 를 낸다. 검사에 걸리면 실제처럼 `error: deployments.apps "web" is invalid` 와 함께 `A copy of your changes has been stored to "/tmp/kubectl-edit-xxxx.yaml"` 를 내고 상태는 바꾸지 않는다.
+     - history 에는 `$ vim x.yaml` (또는 `$ kubectl edit ...`) 한 항목으로 남기고 변경 줄을 붙인다. `meta.cmd_count` 도 한 번만 올린다.
    - `kubectl apply/create -f`: YAML 문법, apiVersion/kind 조합, 필수 필드를 검사하고 통과하면 objects 에 반영한다.
    - static pod: `/etc/kubernetes/manifests/` 파일이 바뀌면 kubelet 이 반영한 것으로 보고 `kube-system/pod/<name>-<node>` 를 갱신한다.
    - 전환: `kubectl config use-context` 는 meta.context, `ssh <node>` 와 `exit` 는 meta.host, `sudo -i` 는 meta.user 를 바꾼다.
