@@ -87,7 +87,7 @@ All commands start with `/ai-k8s-make-believe:`.
 | `cka-load [text \| file \| topic \| 오답]` | Load a problem. `오답` ("wrong answers") makes a variant of a problem you missed before |
 | `cka <command>` or `$ <command>` | Run a command in the virtual terminal |
 | `cka-submit [command]` | Grade the current virtual state. A command given here runs first |
-| `cka-hint` | Get the next hint: direction, then location, then the answer |
+| `cka-hint` | Get the next hint: a search term for the official docs (checked against the page), then direction, then location, then the answer |
 | `cka-giveup` | Show the answer and explanation, then archive the problem |
 | `cka-reset` | Reset the virtual environment. Attempt and hint counts stay |
 | `cka-exam start \| next \| prev \| goto N \| status \| end` | 2-hour mock exam. No hints, graded at the end. Retakes are logged as attempts |
@@ -174,7 +174,9 @@ Put this in `~/cka-practice/.claude/settings.local.json` to allow state file wor
       "Read(~/.claude/plugins/cache/ai-k8s-make-believe/**)",
       "Edit(./.cka/**)",
       "Bash(date:*)",
-      "Bash(cat >> .cka/:*)"
+      "Bash(cat >> .cka/:*)",
+      "WebSearch",
+      "WebFetch(domain:kubernetes.io)"
     ]
   }
 }
@@ -192,6 +194,7 @@ Grading and diagram scripts and archiving finished problems still ask first. Fin
 ## FAQ
 
 - **"Unknown command".** Commands need the `/ai-k8s-make-believe:` prefix. Right after installing, run `/reload-plugins`.
+- **Typing `:wq` closed Claude Code.** Claude Code treats a bare `:wq` or `:q` as an exit command. After `vim <file>` or `kubectl edit` in the terminal, paste the whole edited content as your next message; that counts as `:wq`. To quit without saving, type `$ :q!`. The web simulator has a real vim editor, so `:wq` works there.
 - **I want to use real `kubectl` here.** Blocking it is intended. Use a directory without `.cka/`.
 - **Bash is blocked with a python3 message.** The hook needs `python3` to decide what to block, so without it everything is blocked in practice directories. Install `python3` and try again.
 - **Simulated output or grading is wrong.** [Open an issue](https://github.com/jhwanchoi/ai-k8s-make-believe/issues/new/choose) with the command, the simulated output, the real output and the Kubernetes version. Do not paste real exam questions or kubeconfigs.

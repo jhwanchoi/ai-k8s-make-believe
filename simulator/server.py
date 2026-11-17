@@ -31,7 +31,10 @@ from import_cka_prep import _sections  # noqa: E402  문항 나누기는 UI pars
 PLUGIN = "/ai-k8s-make-believe:"
 # E2E 에서 확인한 범위. 파일 쓰기는 --permission-mode acceptEdits 로 연습 폴더 안에서만 된다.
 ALLOWED_TOOLS = ["Bash(date:*)", "Bash(cat >> .cka/:*)", "Bash(python3:*)", "Bash(mkdir -p .cka/archive)",
-                 "Bash(mv .cka/:*)", "Bash(rm .cka/current)", "Bash(rm .cka/exam.json)", "Read", "Glob"]
+                 "Bash(mv .cka/:*)", "Bash(rm .cka/current)", "Bash(rm .cka/exam.json)", "Read", "Glob",
+                 # 힌트 1단계(공식 문서 검색어)를 실제로 찾아보고 확인할 때. 시험에서 열 수 있는 문서 도메인만 연다.
+                 "WebSearch", "WebFetch(domain:kubernetes.io)", "WebFetch(domain:helm.sh)",
+                 "WebFetch(domain:gateway-api.sigs.k8s.io)"]
 HEADLESS = ("이 세션은 ai-k8s-make-believe 웹 시뮬레이터 서버가 headless 로 실행한다. 사용자에게 질문할 수 없으니 "
             "AskUserQuestion 을 쓰지 않는다. 검토(reviewer)에서 이상이 나오면 '무시'를 고른 것으로 진행하고, "
             "검토 결과는 반환값(모의고사면 리포트)에 남긴다.")
