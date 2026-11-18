@@ -194,6 +194,8 @@ archive 네임스페이스에 데이터를 보관할 PVC와 Pod를 만드세요.
         for (let i = 0; i < markdown.length; i += 28) { await wait(45); yield markdown.slice(i, i + 28); }
       } finally { active = false; }
     },
+    // POST /api/exam/abort: 채점 없이 버린다. 목업은 메모리 상태만 비운다
+    abortExam: () => exclusive(() => { running(); exam = null; answerBook = null; clock = null; return {moved: []}; }),
     // POST /api/exam/end -> report path + report data
     endExam: () => exclusive(() => {
       running(); exam.ended = true;

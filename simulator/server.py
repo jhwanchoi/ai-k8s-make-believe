@@ -14,6 +14,7 @@ import json
 import os
 import posixpath
 import re
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -37,9 +38,10 @@ HEADLESS = ("이 세션은 ai-k8s-make-believe 웹 시뮬레이터 서버가 hea
             "검토 결과는 반환값(모의고사면 리포트)에 남긴다.")
 EXAM_NAME = re.compile(r"[\w.-]+\.md")
 CMD_PROMPT = REPO / "simulator" / "cmd-prompt.md"
+RETRO_PROMPT = REPO / "simulator" / "retro-prompt.md"
 KUBECTL_REFS = REPO / "skills" / "cka-rules" / "references" / "kubectl"
 CHANGE_ROOTS = ("clusters", "hosts", "meta")
-TIMEOUT = {"cmd": 600, "start": 1200, "goto": 900, "submit": 600, "end": 1800}
+TIMEOUT = {"cmd": 600, "start": 1200, "goto": 900, "submit": 600, "end": 1800, "retro": 600}
 
 
 # ---------- 파일 형식 ----------
@@ -311,17 +313,17 @@ class Claude:
         except (OSError, ValueError, KeyError):
             return None
 
-    def ask(self, prompt, on_text):
-        """웹 명령 한 번: 도구 없음, 세션 저장 없음, 기본 시스템 프롬프트 대신 cmd-prompt.md.
+    def ask(self, prompt, on_text, system=CMD_PROMPT, kind="cmd"):
+        """단발 호출(웹 명령, 행동 회고): 도구 없음, 세션 저장 없음, 기본 시스템 프롬프트 대신 system 파일.
         모델 텍스트 조각마다 on_text 를 부르고 (최종 텍스트, 비용, 초) 를 돌려준다."""
         args = ["claude", "-p", "--model", self.model, "--setting-sources", "project,local", "--no-session-persistence",
-                "--tools", "", "--system-prompt", CMD_PROMPT.read_text(),
+                "--tools", "", "--system-prompt", system.read_text(),
                 "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
         started = time.time()
         errors = tempfile.TemporaryFile(mode="w+")
         proc = subprocess.Popen(args, cwd=self.practice, env={**os.environ, "KUBECONFIG": "/dev/null"},
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, text=True)
-        timer = threading.Timer(TIMEOUT["cmd"], proc.kill)
+        timer = threading.Timer(TIMEOUT[kind], proc.kill)
         timer.start()
         result = None
         try:
@@ -344,7 +346,7 @@ class Claude:
         if not result or result.get("is_error") or proc.returncode:
             errors.seek(0)
             detail = (result or {}).get("result") or errors.read()[-300:] or "응답이 없습니다"
-            raise RuntimeError(f"Claude 실행 실패 (cmd): {detail.strip()}")
+            raise RuntimeError(f"Claude 실행 실패 ({kind}): {detail.strip()}")
         return result.get("result") or "", result.get("total_cost_usd"), seconds
 
     def forget(self):
@@ -492,6 +494,141 @@ class Exams:
                 "mock": False, "total": attempt.get("total"), "passed": attempt.get("passed"), "problems": problems}
 
 
+# ---------- 문서 이용 기록 ----------
+# 기준: LF CKA 허용 리소스(번역판 포함), 그 외는 위반. 같은 규칙을 두 번 넘게 어기면 시험 종료(핸드북)
+
+BROWSER_CONTAINER = "cka-firefox"  # README 의 docker run 이름
+DOC_LANG = r"(?:/[a-z]{2}(?:-[a-z]{2,4})?)?"  # /ko, /zh-cn 같은 번역판 접두사
+
+
+def doc_allowed(url):
+    """허용 문서면 True, 위반이면 False. http(s) 가 아니면(about:blank 등) None — 판정하지 않는다."""
+    u = urlsplit(url)
+    if u.scheme not in ("http", "https"):
+        return None
+    host, path = (u.hostname or "").lower(), u.path or "/"
+    if host == "kubernetes.io":
+        return bool(re.match(DOC_LANG + r"/(docs|blog|search)(/|$)", path))
+    if host == "helm.sh":
+        return bool(re.match(DOC_LANG + r"/docs(/|$)", path))
+    return host == "gateway-api.sigs.k8s.io"
+
+
+def doc_visits(since, until, container=BROWSER_CONTAINER):
+    """컨테이너 Firefox 의 방문 기록(places.sqlite) 중 시험 시간 안의 것. 차단 · 로드 실패한 주소는 남지 않는다."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for name in ("places.sqlite", "places.sqlite-wal"):
+            r = subprocess.run(["docker", "cp", f"{container}:/config/profile/{name}", tmp],
+                               capture_output=True, text=True, timeout=30)
+            if r.returncode and name == "places.sqlite":
+                raise RuntimeError(r.stderr.strip() or "docker cp 실패")
+        con = sqlite3.connect(str(Path(tmp) / "places.sqlite"))
+        try:
+            rows = con.execute("SELECT v.visit_date, v.visit_type, p.url FROM moz_historyvisits v "
+                               "JOIN moz_places p ON p.id = v.place_id WHERE v.visit_date BETWEEN ? AND ? "
+                               "ORDER BY v.visit_date", (int(since * 1e6), int(until * 1e6))).fetchall()
+        finally:
+            con.close()
+    return [{"at": int(t / 1e6), "url": url, "reload": vtype == 9} for t, vtype, url in rows]
+
+
+def doc_report(visits):
+    """방문마다 허용 여부를 붙이고 위반 횟수(새로고침 제외)로 판정한다."""
+    judged = [{**v, "allowed": doc_allowed(v["url"])} for v in visits]
+    judged = [v for v in judged if v["allowed"] is not None]
+    violations = sum(1 for v in judged if not v["allowed"] and not v["reload"])
+    verdict = "문제 없음" if not violations else "경고" if violations <= 2 else "실제 시험이면 종료(탈락)"
+    return {"visits": judged, "violations": violations, "verdict": verdict}
+
+
+def doc_markdown(docs):
+    """리포트 md 끝에 붙일 절."""
+    lines = ["", "## 문서 이용 기록", ""]
+    if docs.get("error"):
+        return "\n".join(lines + [docs["error"], ""])
+    lines += [f"판정: **{docs['verdict']}** (허용 밖 방문 {docs['violations']}회, 새로고침 제외). "
+              "기준: LF CKA 허용 리소스(kubernetes.io/docs · blog · search, helm.sh/docs, gateway-api.sigs.k8s.io, 번역판 포함), "
+              "1~2회 경고, 3회 이상 시험 종료.", ""]
+    if docs["visits"]:
+        lines += ["| 시각 | 주소 | 판정 |", "|---|---|---|"]
+        lines += [f"| {time.strftime('%H:%M:%S', time.localtime(v['at']))} | {v['url'].replace('|', '%7C')} | "
+                  f"{'허용' if v['allowed'] else '위반'}{' (새로고침)' if v['reload'] else ''} |" for v in docs["visits"]]
+    else:
+        lines.append("연 문서가 없습니다.")
+    return "\n".join(lines + [""])
+
+
+# ---------- 행동 회고 ----------
+# 점수와 별개로 어떻게 풀었는지 돌아본다. 기준과 응답 형식은 retro-prompt.md
+
+RETRO_AXES = ("스스로 풀기", "문서 찾기", "디테일", "검증")
+HISTORY_TIME = re.compile(r"^### #\d+\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})", re.M)
+
+
+def history_span(history):
+    """history.md 의 (명령 수, 처음~마지막 명령 사이 분). 기록 시각이 분 단위라 +1 로 센다."""
+    times = [time.mktime(time.strptime(t, "%Y-%m-%d %H:%M")) for t in HISTORY_TIME.findall(history)]
+    return len(times), (int((max(times) - min(times)) // 60) + 1 if times else 0)
+
+
+def build_retro_input(cka, meta, attempt):
+    """회고에 넘길 자료: 손댄 문항의 문제 · 요구사항 · 명령 기록, 시험 중 문서 방문. 정답 · 루브릭은 넣지 않는다."""
+    scores = {p.get("n"): p for p in (attempt or {}).get("problems", [])}
+    parts, stats = [], {}
+    for n, pid in sorted(((int(k), v) for k, v in (meta.get("problem_ids") or {}).items())):
+        folder = next((d for d in (cka / "archive" / pid, cka / pid) if (d / "history.md").exists()), None)
+        if not folder or "/" in pid:
+            continue
+        history = (folder / "history.md").read_text()[-30000:]
+        count, minutes = history_span(history)
+        stats[n] = {"minutes": minutes, "commands": count}
+        problem = (folder / "problem.md").read_text() if (folder / "problem.md").exists() else ""
+        score = scores.get(n, {})
+        parts.append(f"## Q{n} ({pid}) · 명령 {count}개 · 처음~마지막 명령 {minutes}분 · 점수 {score.get('score', '?')}/{score.get('weight', '?')}\n\n"
+                     f"### 문제\n{problem}\n\n### 명령 기록\n{history}")
+    docs = meta.get("docs") or {}
+    if docs.get("visits") is not None:
+        lines = [f"- {time.strftime('%H:%M:%S', time.localtime(v['at']))} {'허용' if v['allowed'] else '위반'} {v['url']}"
+                 for v in docs["visits"]]
+        doc_text = "\n".join(lines) or "(연 문서 없음)"
+    else:
+        doc_text = docs.get("error") or "(문서 브라우저 기록 없음: Firefox 컨테이너 없이 실행)"
+    started = time.strftime("%Y-%m-%d %H:%M", time.localtime(meta["started_at"]))
+    ended = time.strftime("%H:%M", time.localtime(meta.get("ended_at") or time.time()))
+    return (f"# 시험 {meta.get('file')} · {started} ~ {ended}\n\n" + "\n\n".join(parts)
+            + f"\n\n## 시험 중 문서 방문 (시각순)\n{doc_text}\n"), stats
+
+
+def parse_retro(text, stats):
+    """Claude 응답에서 JSON 을 꺼내 형식을 확인하고 문항별 시간 · 명령 수(코드로 센 값)를 붙인다."""
+    start, end = text.find("{"), text.rfind("}")
+    try:
+        data = json.loads(text[start:end + 1]) if start >= 0 else None
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get("problems"), list) or not isinstance(data.get("habits"), list):
+        raise RuntimeError("회고 응답 형식이 올바르지 않습니다. 다시 시도하세요.")
+    for p in data["problems"]:
+        if not isinstance(p, dict) or not isinstance(p.get("axes"), list):
+            raise RuntimeError("회고 응답 형식이 올바르지 않습니다. 다시 시도하세요.")
+        p.update(stats.get(p.get("n"), {}))
+    return data
+
+
+def retro_markdown(retro):
+    """리포트 md 끝에 붙일 절."""
+    lines = ["", "## 행동 회고", "", "점수와 별개로 어떻게 풀었는지 돌아본 것. 근거의 #번호는 명령 기록 번호다.", ""]
+    for p in retro["problems"]:
+        lines += [f"### Q{p.get('n')} {p.get('title', '')} (명령 {p.get('commands', '?')}개, {p.get('minutes', '?')}분)", "",
+                  "| 기준 | 평가 | 근거 |", "|---|---|---|"]
+        lines += [f"| {a.get('axis', '')} | {a.get('grade', '')} | {str(a.get('evidence', '')).replace('|', '/')} |" for a in p["axes"]]
+        lines.append("")
+    if not retro["problems"]:
+        lines += ["손댄 문항이 없습니다.", ""]
+    lines += ["### 다음 시험에서", ""] + [f"{i}. {h}" for i, h in enumerate(retro["habits"], 1)]
+    return "\n".join(lines + [""])
+
+
 # ---------- HTTP ----------
 
 def current_problem(cka):
@@ -589,7 +726,7 @@ def make_handler(practice, claude, exams, port, browser_url=None):
                 return
             routes = {"/api/exam/start": self.start, "/api/exam/goto": self.goto, "/api/submit": self.submit,
                       "/api/exam/end": self.end, "/api/cmd": self.cmd, "/api/file": self.save,
-                      "/api/attempts/reset": self.reset_attempts, "/api/exam/abort": self.abort}
+                      "/api/attempts/reset": self.reset_attempts, "/api/exam/abort": self.abort, "/api/exam/retro": self.retro}
             route = routes.get(self.path)
             if not route:
                 return self._json(404, {"error": "not found"})
@@ -698,10 +835,49 @@ def make_handler(practice, claude, exams, port, browser_url=None):
 
         def end(self, body):
             meta = self._running()
+            # 종료하면 exam.json 이 지워지므로 회고에 쓸 문항 id 를 먼저 남긴다
+            meta["problem_ids"] = {str(p["n"]): p["id"] for p in exams.plugin_exam().get("problems", []) if p.get("id")}
             claude.run("end", f"{PLUGIN}cka-exam end")
-            meta["ended"] = True
+            meta["ended"], meta["ended_at"] = True, int(time.time())
             exams.meta_file.write_text(json.dumps(meta))
-            self._json(200, exams.report())
+            report = exams.report()
+            if browser_url:  # 진짜 Firefox(컨테이너)를 쓸 때만 방문 기록이 있다
+                try:
+                    report["docs"] = doc_report(doc_visits(meta["started_at"], time.time()))
+                except (OSError, RuntimeError, sqlite3.Error, subprocess.SubprocessError) as e:
+                    report["docs"] = {"error": f"문서 이용 기록을 읽지 못했습니다: {e}"}
+                if report["path"]:
+                    with open(practice / report["path"], "a") as md:
+                        md.write(doc_markdown(report["docs"]))
+                meta["docs"] = report["docs"]
+                exams.meta_file.write_text(json.dumps(meta))
+            self._json(200, report)
+
+        def retro(self, body):
+            """종료한 시험의 행동 회고. 한 번 만들면 server-exam.json 에 두고 다시 부르면 그대로 돌려준다."""
+            meta = exams.meta()
+            if not meta or not meta.get("ended"):
+                raise ValueError("종료한 시험이 없습니다.")
+            if meta.get("retro"):
+                return self._json(200, meta["retro"])
+            rel = f"exams/{meta['file']}"
+            attempt = next((a for a in reversed(exams.attempt_lines()) if a.get("exam") == rel), None)
+            prompt, stats = build_retro_input(practice / ".cka", meta, attempt)
+            if not stats:
+                retro = {"problems": [], "habits": []}
+            else:
+                text, cost, seconds = claude.ask(prompt, lambda _: None, system=RETRO_PROMPT, kind="retro")
+                retro = parse_retro(text, stats)
+                with open(practice / ".cka" / "server-log.jsonl", "a") as log:
+                    log.write(json.dumps({"at": int(time.time()), "kind": "retro", "seconds": seconds,
+                                          "cost_usd": cost, "warning": ""}, ensure_ascii=False) + "\n")
+            reports = sorted((practice / ".cka").glob("exam-report-*.md"))
+            if reports:
+                with open(reports[-1], "a") as md:
+                    md.write(retro_markdown(retro))
+            meta["retro"] = retro
+            exams.meta_file.write_text(json.dumps(meta))
+            self._json(200, retro)
 
         def save(self, body):
             """편집기 저장(:w, Ctrl+O). Claude 없이 state.json 에 바로 쓰고 history 에 남긴다."""
@@ -827,6 +1003,35 @@ def _selftest():
     ])
     assert session == "s1" and result["result"].endswith("```"), (session, result)
     assert parse_stream([]) == (None, None)
+
+    for url, want in [("https://kubernetes.io/docs/concepts/", True), ("https://kubernetes.io/ko/docs/x", True),
+                      ("https://kubernetes.io/zh-cn/docs/", True), ("https://kubernetes.io/blog/2024/", True),
+                      ("https://kubernetes.io/search/?q=pvc", True), ("https://helm.sh/docs/intro/", True),
+                      ("https://gateway-api.sigs.k8s.io/guides/", True), ("https://kubernetes.io/community/", False),
+                      ("https://kubernetes.io/", False), ("https://kubernetes.io/docsx", False), ("https://helm.sh/", False),
+                      ("https://github.com/kubernetes/website", False), ("https://www.google.com/search?q=k", False),
+                      ("about:blank", None), ("about:newtab", None)]:
+        assert doc_allowed(url) is want, (url, want)
+    visit = lambda url, reload=False: {"at": 1, "url": url, "reload": reload}
+    ok, bad = "https://kubernetes.io/docs/", "https://github.com/x"
+    assert doc_report([visit(ok), visit("about:blank")]) == {"visits": [{**visit(ok), "allowed": True}], "violations": 0, "verdict": "문제 없음"}
+    assert doc_report([visit(bad), visit(bad, True), visit(ok)])["verdict"] == "경고"
+    assert doc_report([visit(bad)] * 3)["verdict"] == "실제 시험이면 종료(탈락)"
+    assert "| 위반 |" in doc_markdown(doc_report([visit(bad)])) and "읽지 못" in doc_markdown({"error": "읽지 못했습니다"})
+
+    hist = "# history q\n### #1  2026-11-17 21:21\n$ k get po\n### #2  2026-11-17 21:49\n$ k get deploy\n"
+    assert history_span(hist) == (2, 29) and history_span("# history q\n") == (0, 0)
+    axes = [{"axis": a, "grade": "보통", "evidence": "#1 | x"} for a in RETRO_AXES]
+    retro = parse_retro('설명 {"problems": [{"n": 1, "title": "t", "axes": %s}], "habits": ["a", "b"]} 끝' % json.dumps(axes), {1: {"minutes": 29, "commands": 2}})
+    assert retro["problems"][0]["minutes"] == 29 and retro["problems"][0]["commands"] == 2
+    md = retro_markdown(retro)
+    assert "## 행동 회고" in md and "(명령 2개, 29분)" in md and "#1 / x" in md and "2. b" in md
+    for broken in ("없음", '{"problems": 1, "habits": []}', '{"problems": [{"n": 1}], "habits": []}'):
+        try:
+            parse_retro(broken, {})
+            raise AssertionError(broken)
+        except RuntimeError:
+            pass
 
     with tempfile.TemporaryDirectory() as tmp:
         practice = Path(tmp)

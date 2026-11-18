@@ -108,7 +108,7 @@ python3 simulator/server.py --practice ~/cka-practice   # open http://127.0.0.1:
 <details>
 <summary>Use a real Firefox for docs (Docker)</summary>
 
-The built-in docs window is an iframe, so kubernetes.io search results do not open in it. With Docker you can run a real Firefox limited to the allowed docs (kubernetes.io/docs, /blog, helm.sh/docs, gateway-api.sigs.k8s.io):
+The built-in docs window is an iframe, so kubernetes.io search results do not open in it. With Docker you can run a real Firefox. It does not block other sites, but when the exam ends the report lists every page you opened and counts visits outside the allowed docs (kubernetes.io/docs, /blog, helm.sh/docs, gateway-api.sigs.k8s.io): 1–2 is a warning, 3 or more would end a real exam:
 
 ```bash
 docker run -d --name cka-firefox -p 127.0.0.1:5800:5800 \
