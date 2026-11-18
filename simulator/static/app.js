@@ -37,9 +37,11 @@
     terminals.lock(busy || ownershipLost);
     $('notes').disabled = $('flag').disabled = ownershipLost;
     $('confirm-end').disabled ||= ownershipLost;
+    $('discard-end').disabled = occupied();
     if (terminals.state) desktop.syncTerminals();
     $('command-status').textContent = message || (expired ? '시간 만료' : terminals.pending ? '명령 처리 중' : '가상 환경');
     clearInterval(elapsedInterval);
+    $('command-status').classList.toggle('loading', value); // 기다리는 동안 돌아가는 아이콘
     if (value) {
       waitStarted = Date.now();
       elapsedInterval = setInterval(() => { $('command-status').textContent = `${message} · ${Math.floor((Date.now() - waitStarted) / 1000)}초 경과`; }, 1000);
@@ -74,12 +76,20 @@
         reset.textContent = '기록 지우고 1차시부터';
         reset.onclick = async () => {
           if (!window.confirm(`${entry.file.name} 의 지난 차시 ${entry.attempts.length}회 기록을 지우고 1차시부터 시작할까요? 지운 기록은 연습 폴더 .cka/backup/ 에 보관됩니다.`)) return;
+          // 시작 진행 표시(돌아가는 아이콘)를 재사용한다. 목록을 다시 읽는 동안에도 보이도록 선택 영역 밖에 있다
+          const progress = $('start-progress'); let failed = '';
+          reset.disabled = $('catalog-start').disabled = $('catalog-resume').disabled = true;
+          progress.classList.remove('error'); progress.textContent = '기록을 지우고 1차시를 준비하는 중…'; progress.hidden = false;
           try {
             await api.resetAttempts({exam: entry.file.name});
             await refreshCatalog(() => api.serverCatalog());
             [...document.querySelectorAll('#exam-list input')].find(r => r.parentElement.textContent.startsWith(`${entry.file.name} `))?.click();
             notice('차시 기록을 지웠습니다. 1차시부터 시작합니다.');
-          } catch (error) { notice(error.message); }
+          } catch (error) { failed = error.message; }
+          finally {
+            progress.hidden = true;
+            if (failed) { if (catalogSelection === entry) showCatalogSelection(entry); startError(failed); }
+          }
         };
         fold.append(reset);
       }
@@ -289,7 +299,7 @@
   }
   async function goto(n) {
     if (occupied() || expired || n < 1 || n > exam.problems.length || n === exam.current) return;
-    setBusy(true, '문항을 불러오고 있습니다');
+    setBusy(true, `Q${n} 문항으로 넘어가는 중`);
     try { exam = await api.gotoExam({n}); eventLog.append('goto', {n}); renderQuestion(); $('question-heading').tabIndex = -1; $('question-heading').focus(); }
     catch (error) { notice(error.message); $('jump').value = exam.current; }
     finally { setBusy(false); tick(); if (expired) $('confirm-end').disabled = false; }
@@ -298,7 +308,7 @@
     $('end-title').textContent = timedOut ? '시험 시간이 만료되었습니다' : '시험을 종료할까요?';
     const flags = Object.values(preferences).filter(p => p?.flag).length;
     $('end-description').textContent = timedOut ? '입력이 잠겼습니다. 진행 중 응답이 끝나면 리포트를 확인하세요.' : `나중에 보기 ${flags}문항이 있습니다. 종료 후 풀이로 돌아갈 수 없습니다.`;
-    $('cancel-end').hidden = timedOut; $('confirm-end').disabled = occupied();
+    $('cancel-end').hidden = timedOut; $('discard-end').hidden = !timedOut; $('confirm-end').disabled = $('discard-end').disabled = occupied();
     $('end-status').textContent = '';
     if (!$('end-dialog').open) $('end-dialog').showModal();
   }
@@ -328,10 +338,76 @@
         line.textContent = `${name} · ${ratio}% — ${ratio < 66 ? '추가 연습이 필요한 도메인입니다.' : (MOCK ? '예시 기준으로 안정적인 도메인입니다.' : '안정적인 도메인입니다.')}`;
         $('weaknesses').append(line);
       }
+      renderDocs(result.docs);
+      $('retro-section').hidden = !api.retro; $('retro').replaceChildren();
+      $('retro-start').hidden = $('retro-start').disabled = false; $('retro-progress').hidden = true;
       $('end-dialog').close(); screen('report'); notice(MOCK ? '목업 데이터 · 실제 채점 결과가 아닙니다.' : `리포트: ${result.path || '.cka/exam-report-*.md'}`);
       $('report').tabIndex = -1; $('report').focus();
     } catch (error) { $('end-status').textContent = `${error.message} 다시 시도하세요.`; }
     finally { setBusy(false); $('confirm-end').disabled = $('cancel-end').disabled = false; }
+  }
+  // 만료된 시험을 채점 없이 버린다. 차시 기록이 늘지 않아 같은 차시를 새로 시작할 수 있다
+  async function discard() {
+    if (occupied() || !window.confirm(`채점하지 않고 이 시험을 버릴까요? 차시 기록에 남지 않습니다.${MOCK ? '' : ' 진행 중인 문제는 연습 폴더 .cka/backup/ 에 보관됩니다.'}`)) return;
+    setBusy(true, '시험을 버리고 있습니다');
+    $('confirm-end').disabled = true;
+    $('end-status').textContent = '시험을 버리고 있습니다…';
+    try {
+      await api.abortExam(); serverExam = null; exam.ended = true; clearInterval(timer);
+      try { if (localStorage.getItem(eventLog.key) === eventLog.expected) localStorage.removeItem(eventLog.key); } catch { /* 저장소를 못 쓰면 지울 로그도 없다 */ }
+      const name = catalogSelection?.file.name;
+      $('end-dialog').close(); backToStart();
+      if (window.SIM_SERVER) {
+        await refreshCatalog(() => api.serverCatalog());
+        [...document.querySelectorAll('#exam-list input')].find(r => r.parentElement.textContent.startsWith(`${name} `))?.click();
+      }
+      notice('채점하지 않고 시험을 버렸습니다.');
+    } catch (error) { $('end-status').textContent = `${error.message} 다시 시도하세요.`; }
+    finally { setBusy(false); $('confirm-end').disabled = false; }
+  }
+  // 서버가 진짜 Firefox 방문 기록으로 판정한 결과. 목업 · iframe 모드는 docs 가 없어 숨긴다
+  function renderDocs(docs) {
+    $('doc-usage').hidden = !docs; $('doc-rows').replaceChildren(); $('doc-verdict').className = '';
+    if (!docs) return;
+    $('doc-table').hidden = !!docs.error;
+    if (docs.error) { $('doc-verdict').textContent = docs.error; return; }
+    $('doc-verdict').textContent = `판정: ${docs.verdict} · 허용 밖 방문 ${docs.violations}회 (새로고침 제외). 기준: kubernetes.io/docs · blog · search, helm.sh/docs, gateway-api.sigs.k8s.io(번역판 포함) 밖 방문이 1~2회면 경고, 3회 이상이면 실제 시험은 종료`;
+    if (docs.violations) $('doc-verdict').className = docs.violations > 2 ? 'doc-fail' : 'doc-warn';
+    for (const v of docs.visits) {
+      const row = document.createElement('tr');
+      for (const value of [new Date(v.at * 1000).toLocaleTimeString('ko-KR'), v.url, (v.allowed ? '허용' : '위반') + (v.reload ? ' (새로고침)' : '')]) {
+        const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
+      }
+      $('doc-rows').append(row);
+    }
+    if (!docs.visits.length) { const row = document.createElement('tr'), cell = document.createElement('td'); cell.colSpan = 3; cell.textContent = '연 문서가 없습니다.'; row.append(cell); $('doc-rows').append(row); }
+  }
+  // 행동 회고: 누를 때만 서버가 Claude 를 한 번 부른다(서버 모드만, 결과는 서버에 남아 다시 누르면 그대로)
+  $('retro-start').onclick = async () => {
+    const progress = $('retro-progress'), began = Date.now();
+    const show = () => { progress.textContent = `Claude 가 명령 기록과 문서 방문을 돌아보는 중 · ${Math.round((Date.now() - began) / 1000)}초`; };
+    $('retro-start').disabled = true; progress.classList.remove('error'); progress.hidden = false; show();
+    const ticker = setInterval(show, 1000);
+    try { renderRetro(await api.retro()); $('retro-start').hidden = true; progress.hidden = true; }
+    catch (error) { progress.textContent = error.message; progress.classList.add('error'); $('retro-start').disabled = false; }
+    finally { clearInterval(ticker); }
+  };
+  function renderRetro(retro) {
+    const box = $('retro'), el = (tag, text) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; return node; };
+    box.replaceChildren();
+    if (!retro.problems.length) { box.append(el('p', '손댄 문항이 없습니다.')); return; }
+    for (const p of retro.problems) {
+      const table = el('table'), head = el('tr'), body = el('tbody');
+      for (const name of ['기준', '평가', '근거']) head.append(el('th', name));
+      for (const a of p.axes) {
+        const row = el('tr'), grade = el('td', a.grade); grade.dataset.grade = a.grade;
+        row.append(el('td', a.axis), grade, el('td', a.evidence)); body.append(row);
+      }
+      const thead = el('thead'); thead.append(head); table.append(thead, body);
+      box.append(el('h3', `Q${p.n} ${p.title || ''} · 명령 ${p.commands ?? '?'}개, ${p.minutes ?? '?'}분`), table);
+    }
+    const list = el('ol'); for (const h of retro.habits) list.append(el('li', h));
+    box.append(el('h3', '다음 시험에서'), list);
   }
   function appendAnswer(row, problem, hasAnswers) {
     const cell = document.createElement('td'); row.append(cell);
@@ -425,8 +501,10 @@
   });
   $('end').onclick = () => { $('controls-menu').open = false; showEnd(expired); }; $('cancel-end').onclick = () => { $('end-dialog').close(); $('end').focus(); };
   $('confirm-end').onclick = end;
+  $('discard-end').onclick = discard;
   $('end-dialog').addEventListener('close', () => { if (expired && exam && !exam.ended) notice('시간 만료 — Exam Controls ▸ 시험 종료로 리포트를 보세요.'); }); // Chrome 은 Esc 로 닫은 모달을 다시 띄워 가두는 것을 막는다. 출구는 #end
-  $('restart').onclick = () => { screen('start'); exam = null; $('report-rows').replaceChildren(); notice(''); resumeUI.refresh(); if (catalogSelection) showCatalogSelection(catalogSelection); $('start-example').focus(); };
+  function backToStart() { screen('start'); exam = null; $('report-rows').replaceChildren(); notice(''); resumeUI.refresh(); if (catalogSelection) showCatalogSelection(catalogSelection); $('start-example').focus(); }
+  $('restart').onclick = backToStart;
   function resize(id, property, initial, min, max, sign) {
     let value = initial;
     function apply(next) { value = Math.max(min, Math.min(max, next)); $('workspace').style.setProperty(property, `${value}%`); $(id).setAttribute('aria-valuenow', Math.round(value)); }

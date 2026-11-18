@@ -1,18 +1,5 @@
 {
   "policies": {
-    "WebsiteFilter": {
-      "Block": ["<all_urls>"],
-      "Exceptions": [
-        "https://kubernetes.io/docs/*",
-        "https://kubernetes.io/*/docs/*",
-        "https://kubernetes.io/blog/*",
-        "https://kubernetes.io/*/blog/*",
-        "https://kubernetes.io/search/*",
-        "https://kubernetes.io/*/search/*",
-        "https://helm.sh/docs/*",
-        "https://gateway-api.sigs.k8s.io/*"
-      ]
-    },
     "Homepage": {"URL": "https://kubernetes.io/docs/", "Locked": true, "StartPage": "homepage"},
     "OverrideFirstRunPage": "",
     "OverridePostUpdatePage": "",

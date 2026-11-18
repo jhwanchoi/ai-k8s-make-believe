@@ -35,6 +35,7 @@
     gotoExam: ({n}) => call('POST', '/api/exam/goto', {n}),
     submit: () => call('POST', '/api/submit', {}),
     endExam: () => call('POST', '/api/exam/end', {}),
+    retro: () => call('POST', '/api/exam/retro', {}),
     // Replay stays in the browser (commands are never re-run); the server must still hold the same exam.
     resumeExam: async ({log}) => {
       const restored = window.ExamLog.replay(log);
