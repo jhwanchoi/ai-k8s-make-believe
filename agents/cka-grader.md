@@ -28,6 +28,7 @@ input: 문제 텍스트 | 파일 경로 | 주제 키워드 | 빈 값 | `오답`
      - 클러스터, 노드, kubeadm 패키지 버전은 `<plugin_root>/skills/cka-rules/references/kubectl/VERSION` 의 마이너 버전을 따른다 (패치는 골라도 된다). 업그레이드 문제처럼 다른 버전이 필요하면 VERSION 기준으로 한 단계 아래에서 시작한다.
      - 문제를 붙여넣은 경우에도 `<plugin_root>/skills/cka-rules/references/problem-types.md` 에서 같은 유형을 찾아 "함정" 칸이 재현되도록 환경을 만든다. 예: Ingress 문제면 IngressClass 를 두되 default 로 표시하지 않아서 `ingressClassName` 이 없으면 라우팅되지 않게 한다. 실제 시험 환경이 흔히 그렇듯, 빠뜨리면 조용히 실패하는 조건을 살려 둔다.
      - 모의고사이고 `.cka/exam.json` 의 `setup` 이 있으면 그 파일을 Read 해서 `## Q<n>` 절(n = 문항 번호)의 환경 스크립트가 만들었을 결과를 초기 상태로 옮긴다. **스크립트는 실행하지 않는다.** `kubectl apply` 한 리소스, `sed` 로 바꾼 파일 내용, 멈춘 서비스를 state.json 에 그대로 반영하고, 고장의 원인은 answer-key "숨은 원인" 에 쓴다. 스크립트가 안 다룬 부분(노드, 기본 리소스)은 SKILL 기본값으로 채우고, 위 "함정" 보다 스크립트를 앞세운다. 절이 없거나 "LabSetUp.bash 없음" 이면 문제 원문으로 만든다.
+     - 문제를 풀 때 읽거나 고칠 설정 파일(static pod 매니페스트, kubelet config, kubeconfig, CNI 설정, 문제에 나온 YAML 등)은 `hosts.<host>.files` 에 실제 내용 전체를 넣는다. `<text: 설명>` 으로 두지 않는다. 풀이에 쓰는 값(예: `--cluster-cidr`, `--etcd-servers`, 인증서 경로)은 state 의 다른 곳(노드 `spec.podCIDR`, kube-proxy 설정, 객체)과 같은 값으로 맞춘다.
      - 함정은 환경 조건으로만 둔다. 원문에 없는 요구사항을 새로 만들지 않고, 조회 명령(`get`, `describe`, `cat` 등)으로 발견할 수 있는 조건이어야 한다. 원문만 보고 풀 수 없게 만드는 함정은 넣지 않는다.
    - `state.init.json`: state.json 과 같은 내용.
    - `history.md`: `# history <id>` 한 줄.

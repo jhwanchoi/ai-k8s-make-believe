@@ -104,6 +104,7 @@ window.TermEditor = (() => {
     }, true);
     box.addEventListener('keydown', event => event.stopPropagation());
 
+    msg.textContent = `"${path}" 읽는 중…`;  // 내용이 아직 없는 파일은 서버가 Claude 로 채우느라 몇 초 걸린다
     api.readFile({host, path}).then(got => {
       if (closed) return;
       file = got; saved = got.text || '';

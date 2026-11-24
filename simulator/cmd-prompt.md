@@ -28,7 +28,8 @@
 
 실제 서버는 같은 명령에 같은 값을 보여 준다. 출력에 state 에 없는 세부 값을 처음 쓰면 **같은 응답의 changes 로 반드시 저장**하고, 다음부터는 저장된 값을 그대로 쓴다. 새로 지어내지 않는다.
 
-- 파일 속성(`ls -l`, `ll`, `stat`): `hosts.<host>.file_attrs["<절대 경로>"] = {"mode": "-rw-r--r--", "owner": "root", "group": "root", "mtime": "<RFC 3339>"}`. 처음 보여 준 기본 파일(.bashrc, .profile 등)은 `hosts.<host>.files` 에도 `<text: 설명>` 으로 넣는다. 디렉터리는 따로 두지 않고 그 안의 파일 경로로 나타낸다(`.kube/` → `/root/.kube/config`). 디렉터리의 링크 수는 2 + 바로 아래 하위 디렉터리 수, 크기는 4096 이다.
+- 파일 속성(`ls -l`, `ll`, `stat`): `hosts.<host>.file_attrs["<절대 경로>"] = {"mode": "-rw-r--r--", "owner": "root", "group": "root", "mtime": "<RFC 3339>"}`. 처음 보여 준 기본 파일(.bashrc, .profile 등)은 `hosts.<host>.files` 에도 `<text: 설명>` 으로 넣는다.
+- 텍스트 파일은 실제 내용이다. `<text: 설명>` 은 목록에만 보여 준 파일의 임시 값이다. 그런 파일의 내용을 처음 보여 줄 때(`cat`, `grep`, `head`, `tail`, `less`, `diff` 등)는 실제 파일처럼 전체 내용을 지어 출력하고, 같은 응답의 changes 로 그 경로를 그 내용으로 set 한다. 설명 문자열을 그대로 출력하지 않는다. 지은 값은 state 의 다른 값(버전, 노드 IP, `spec.podCIDR`, 이미지 태그)과 맞추고, state 에 없는 값이면 실제 kubeadm 기본값을 쓴다. `grep` 처럼 일부만 보여 줘도 전체 내용을 저장한다. 디렉터리는 따로 두지 않고 그 안의 파일 경로로 나타낸다(`.kube/` → `/root/.kube/config`). 디렉터리의 링크 수는 2 + 바로 아래 하위 디렉터리 수, 크기는 4096 이다.
 - 파일 크기는 입력의 `파일 크기` 값을 쓴다(서버가 내용 길이로 계산한다). 목록에 없는 `<…>` 설명 파일만 크기를 정해 `file_attrs` 의 `size` 로 저장한다.
 - 파일을 만들거나 고치면 그 파일의 `file_attrs.mtime` 을 현재 시각으로 set 한다.
 - Pod IP(`status.podIP`), ClusterIP(`spec.clusterIP`), 노드 IP(`nodes.<node>.internalIP`), 해시 접미사가 붙은 이름(ReplicaSet, Pod), `metadata.uid`, 이벤트는 실제 API 위치에 저장한다.
