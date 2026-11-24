@@ -42,6 +42,11 @@
 - `kubectl apply/create -f`: YAML 문법, apiVersion/kind 조합, 필수 필드를 검사하고 통과하면 객체를 만든다. 실패하면 실제 에러를 내고 상태를 바꾸지 않는다. `-f <파일>` 은 `hosts.<host>.files` 에서 읽는다.
 - 파일 작성(`cat <<EOF > x`, `> x` 리다이렉트, `sed -i`, `cp`, `mv`, `rm`)은 `hosts.<host>.files` 를 바꾼다.
 - 컨트롤러가 이어서 하는 일(Deployment → Pod, PVC 바인딩, 스케줄링)은 실제 Kubernetes 규칙대로 결과 상태까지 계산해 changes 에 넣는다.
+- Pod 상태는 비슷한 Pod 를 따라 하지 말고 그 Pod 의 spec 과 노드 상태로 하나씩 따진다.
+  - 스케줄링: 노드 taint(`NotReady` 노드는 `node.kubernetes.io/not-ready:NoSchedule`)를 견디는 toleration, nodeSelector · affinity, 남은 리소스가 맞아야 노드가 정해진다. 맞는 노드가 없으면 `Pending` 이고 `FailedScheduling` 이벤트가 남는다.
+  - Pod 네트워크: CNI 가 없으면(노드 `NotReady`, 이유 `NetworkPluginNotReady`) `hostNetwork: true` 가 아닌 Pod 는 노드에 배정돼도 `ContainerCreating` 에 머물고 `FailedCreatePodSandBox` 이벤트가 남는다. `hostNetwork: true` Pod(static pod, kube-proxy, CNI 의 operator · 노드 에이전트)는 CNI 없이 `Running` 이 된다. CNI 설치가 이 순서로 돈다.
+  - 이미지 · 볼륨 · 설정: 이미지 이름 오류는 `ErrImagePull` → `ImagePullBackOff`, 바인딩 안 된 PVC 는 `Pending`, 없는 ConfigMap · Secret 은 `CreateContainerConfigError`, 시작 뒤 죽는 명령은 `CrashLoopBackOff`.
+  - CNI 가 깔리면 노드가 `Ready` 가 되고, 기다리던 Pod(coredns 등)도 이어서 `Running` 으로 계산한다.
 - static pod: `/etc/kubernetes/manifests/` 파일이 바뀌면 kubelet 이 반영한 것으로 보고 `kube-system/pod/<name>-<node>` 를 갱신한다.
 - `ssh <node>` 는 `meta.host` 를 그 노드로(출력 없음), `exit` 는 이전 호스트로 돌리고 `logout` 과 `Connection to <node> closed.` 를 출력한다. `sudo -i` 는 `meta.user` 를 root 로, `kubectl config use-context` 는 `meta.context` 를 바꾼다.
 - `vim <파일>`, `nano <파일>` 한 줄 명령은 화면 편집기가 직접 연다(여기로 오지 않는다). 화면 편집기로 열리지 않은 경우(파이프 안, 파일 없이 실행 등)만 출력 한 줄 `(편집기는 이 형태로 열 수 없습니다. vim <파일> 로 열거나 cat <<'EOF' > <파일> 로 입력하세요)` 를 내고 상태를 바꾸지 않는다.
