@@ -716,6 +716,11 @@ def make_handler(practice, claude, exams, port, browser_url=None):
                 except ValueError as e:
                     return self._json(400, {"error": str(e)})
                 files = state.get("hosts", {}).get(host, {}).get("files", {})
+                if str(files.get(path, "")).startswith("<text:"):
+                    try:
+                        files = self._fill(host, path)
+                    except (ValueError, RuntimeError) as e:
+                        return self._json(409 if "처리 중" in str(e) else 400, {"error": str(e)})
                 vimrc = files.get(home_of(state) + "/.vimrc")
                 return self._json(200, {"path": path, "exists": path in files, "text": files.get(path) or "",
                                         "vimrc": vimrc if isinstance(vimrc, str) else ""})
@@ -881,6 +886,34 @@ def make_handler(practice, claude, exams, port, browser_url=None):
             meta["retro"] = retro
             exams.meta_file.write_text(json.dumps(meta))
             self._json(200, retro)
+
+        def _fill(self, host, path):
+            """편집기로 연 파일이 `<text: 설명>` 이면 `cat <경로>` 명령과 같은 Claude 호출로 실제 내용을 지어 state 에 저장한다.
+            명령 수와 history 는 바꾸지 않는다(사용자가 친 명령이 아니다). 그 host 의 files 를 돌려준다."""
+            self._running()
+            if not claude.lock.acquire(blocking=False):
+                raise ValueError("다른 요청을 처리 중입니다.")
+            try:
+                cka = practice / ".cka"
+                pid, state_path, state = current_problem(cka)
+                prompt = build_cmd_input(cka, pid, {**state, "meta": {**state.get("meta", {}), "host": host}}, 1, host, f"cat {path}")
+                reply, cost, seconds = claude.ask(prompt, lambda _: None)
+                _, changes, warn = parse_reply(reply)
+                if changes is not None and not warn:
+                    try:
+                        state, _ = apply_changes(state, changes)
+                    except ValueError as e:
+                        warn = str(e)
+                    else:
+                        tmp = state_path.with_suffix(".json.tmp")
+                        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1))
+                        os.replace(tmp, state_path)
+                with open(cka / "server-log.jsonl", "a") as log:
+                    log.write(json.dumps({"at": int(time.time()), "kind": "file-fill", "seconds": seconds, "cost_usd": cost,
+                                          "warning": warn or ""}, ensure_ascii=False) + "\n")
+                return state.get("hosts", {}).get(host, {}).get("files", {})
+            finally:
+                claude.lock.release()
 
         def save(self, body):
             """편집기 저장(:w, Ctrl+O). Claude 없이 state.json 에 바로 쓰고 history 에 남긴다."""
@@ -1149,7 +1182,9 @@ def _selftest():
         (cka / "q01").mkdir(parents=True)
         (cka / "current").write_text("q01")
         (cka / "q01" / "state.json").write_text(json.dumps({"meta": {"user": "root", "cwd": "/root", "cmd_count": 2},
-            "hosts": {"cp": {"files": {"/root/d.yaml": "kind: Pod\n", "/root/.vimrc": "set et sw=2\n"}}}}))
+            "hosts": {"cp": {"files": {"/root/d.yaml": "kind: Pod\n", "/root/.vimrc": "set et sw=2\n",
+                                       "/etc/m.yaml": "<text: manifest>"}}}}))
+        (cka / "q01" / "problem.md").write_text("문제")
         (cka / "q01" / "history.md").write_text("# history q01\n")
         (cka / "q01" / "answer-key.md").write_text("SECRET-ANSWER")
         (cka / "exam.json").write_text(json.dumps({"problems": []}))
@@ -1157,10 +1192,19 @@ def _selftest():
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
-        srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(practice, Claude(practice, "sonnet"), Exams(practice), port))
+        fake = Claude(practice, "sonnet")
+        asked = []
+        fake.ask = lambda prompt, on_text: (asked.append(prompt) or '<output>x</output>\n<changes>[{"op": "set", "path": '
+                                            '["hosts", "cp", "files", "/etc/m.yaml"], "value": "kind: Pod\\n"}]</changes>', 0.01, 1.0)
+        srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(practice, fake, Exams(practice), port))
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{port}"
         try:
+            # <text: 설명> 파일은 cat 과 같은 호출로 채워 저장하고, 명령 수는 그대로
+            got = json.loads(urllib.request.urlopen(f"{base}/api/file?host=cp&path=/etc/m.yaml").read())
+            assert got["text"] == "kind: Pod\n" and len(asked) == 1 and asked[0].endswith("cat /etc/m.yaml")
+            filled = json.loads((cka / "q01" / "state.json").read_text())
+            assert filled["hosts"]["cp"]["files"]["/etc/m.yaml"] == "kind: Pod\n" and filled["meta"]["cmd_count"] == 2
             got = urllib.request.urlopen(f"{base}/api/file?host=cp&path=~/d.yaml").read().decode()
             assert "SECRET" not in got and json.loads(got) == {"path": "/root/d.yaml", "exists": True, "text": "kind: Pod\n", "vimrc": "set et sw=2\n"}
             req = urllib.request.Request(f"{base}/api/file", method="POST", headers={"Content-Type": "application/json", "X-Sim": "1"},
